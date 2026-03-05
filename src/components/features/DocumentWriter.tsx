@@ -30,10 +30,7 @@ export default function DocumentWriter() {
   const [isDragging, setIsDragging] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   
-  // 상태: 작성 모드 (기존 텍스트 유지 vs 구조만 남기고 빈 화면)
   const [writeMode, setWriteMode] = useState<"rewrite" | "new">("rewrite");
-  
-  // 새로 추가된 상태: 미리보기 모달 열림 여부
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,10 +120,8 @@ export default function DocumentWriter() {
     setIntents(prev => ({ ...prev, [newId]: "" }));
   };
 
-  // 작성 모드에 맞춰 다음 단계로 이동
   const handleStartEdit = () => {
     if (writeMode === "new" && doc) {
-      // 빈 템플릿(새로 작성) 모드일 경우 각 섹션의 내용을 모두 비움
       setDoc(prev => prev ? {
         ...prev,
         sections: prev.sections.map(s => ({
@@ -521,7 +516,10 @@ export default function DocumentWriter() {
               </div>
             ))}
 
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-3">
+              <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
+                👀 미리보기
+              </Button>
               <Button size="lg" onClick={() => setStep("done")}>완료 · 최종 확인 →</Button>
             </div>
           </div>
@@ -583,18 +581,22 @@ export default function DocumentWriter() {
         )}
       </div>
 
-      {/* ── 미리보기 모달 (Preview Modal) ── */}
+      {/* ── 미리보기 모달 (A4 문서 스타일 적용) ── */}
       {isPreviewOpen && doc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-          <div className="bg-background border shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
+          <div className="bg-muted/30 border shadow-2xl rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
-            <div className="flex items-center justify-between p-6 border-b">
+            {/* 상단 헤더 */}
+            <div className="flex items-center justify-between p-4 sm:p-6 bg-background border-b z-10">
               <div>
-                <h3 className="text-xl font-bold">👀 문서 미리보기</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {writeMode === "rewrite" 
-                    ? "선택된 모드: 원본 내용이 복사되어 유지된 형태입니다." 
-                    : "선택된 모드: 구조만 유지되고 내용은 모두 비워진 템플릿 형태입니다."}
+                <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+                  👀 문서 미리보기
+                  <span className="text-xs font-normal px-2 py-1 bg-primary/10 text-primary rounded-full">
+                    {writeMode === "rewrite" ? "기존 내용 유지 모드" : "빈 템플릿 모드"}
+                  </span>
+                </h3>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                  * 텍스트 구조 확인용 화면입니다. (원본 디자인은 포함되지 않습니다)
                 </p>
               </div>
               <button 
@@ -605,21 +607,38 @@ export default function DocumentWriter() {
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 space-y-8 bg-muted/20">
-              {doc.sections.map(section => (
-                <div key={section.id} className="space-y-3 bg-background p-5 rounded-xl border">
-                  <h4 className="font-bold text-lg text-primary border-b pb-2">[{section.title}]</h4>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/80 min-h-[40px]">
-                    {writeMode === "rewrite" 
-                      ? section.originalText 
-                      : <span className="text-muted-foreground italic">✨ (이곳에 새로운 내용이 작성됩니다)</span>}
-                  </p>
+            {/* 스크롤 가능한 A4 용지 영역 */}
+            <div className="overflow-y-auto flex-1 p-4 sm:p-10 flex justify-center">
+              {/* A4 스타일 페이퍼 */}
+              <div className="bg-white shadow-md w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-16 text-black">
+                
+                {/* 문서 제목 */}
+                <h1 className="text-2xl sm:text-4xl font-extrabold text-center mb-12 pb-6 border-b-2 border-black/20">
+                  {doc.title}
+                </h1>
+                
+                {/* 문서 섹션 내용 */}
+                <div className="space-y-10">
+                  {doc.sections.map((section, idx) => (
+                    <div key={section.id} className="space-y-4">
+                      <h2 className="text-xl sm:text-2xl font-bold text-black border-l-4 border-primary pl-3">
+                        {idx + 1}. {section.title}
+                      </h2>
+                      <p className="text-sm sm:text-base leading-loose whitespace-pre-wrap text-gray-800 break-words pl-4">
+                        {writeMode === "rewrite" 
+                          ? section.originalText 
+                          : <span className="text-gray-400 italic">... [AI가 작성 의도에 맞춰 이곳에 내용을 채워 넣습니다] ...</span>}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                
+              </div>
             </div>
             
-            <div className="p-4 border-t flex justify-end bg-background">
-              <Button onClick={() => setIsPreviewOpen(false)}>확인 닫기</Button>
+            {/* 하단 닫기 버튼 */}
+            <div className="p-4 border-t flex justify-end bg-background z-10">
+              <Button size="lg" onClick={() => setIsPreviewOpen(false)}>닫기</Button>
             </div>
             
           </div>
@@ -640,7 +659,6 @@ function AnalysisCard({ icon, label, value }: { icon: string; label: string; val
 }
 
 /** * 파일 확장자에 따라 CDN을 통해 파서를 동적으로 불러와 텍스트를 추출합니다.
- * (npm install 없이 브라우저에서 바로 동작합니다)
  */
 async function readFileAsText(file: File): Promise<string> {
   const ext = file.name.split('.').pop()?.toLowerCase();
