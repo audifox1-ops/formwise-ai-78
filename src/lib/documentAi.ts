@@ -1,78 +1,189 @@
 export interface FormField {
-  id: string;
-  type: "text" | "email" | "textarea" | "select" | "radio" | "checkbox" | "date";
+  type: "text" | "email" | "textarea" | "select" | "radio" | "checkbox";
   label: string;
   required: boolean;
-  placeholder: string; // Tab 자동완성을 위한 구체적 예시 (필수)
+  placeholder?: string;
   options?: string[];
-}
-
-export interface FormSection {
-  title: string;
-  description?: string;
-  fields: FormField[];
 }
 
 export interface GeneratedForm {
   title: string;
-  version: string;
-  date: string;
-  sections: FormSection[];
+  description: string;
+  fields: FormField[];
 }
 
-export async function generateFormWithAI(formType: string, prompt: string): Promise<GeneratedForm> {
+export interface DocumentSection {
+  id: string;
+  title: string;
+  originalText: string;
+  aiGenerated: boolean;
+  userIntent: string;
+  importance: "high" | "medium" | "low";
+}
+
+export interface DeepAnalysis {
+  purpose: string;
+  coreMessage: string;
+  targetAudience: string;
+  writingStyle: string;
+  tone: string;
+  qualityScore: number;
+  qualityReason: string;
+  keywords: string[];
+  suggestions: string[];
+  structureEvaluation: string;
+  estimatedReadTime: string;
+}
+
+export interface AnalyzedDocument {
+  title: string;
+  documentType: string;
+  sections: DocumentSection[];
+  summary: string;
+  deepAnalysis: DeepAnalysis;
+}
+
+const GEMINI_URL = (key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+
+function sanitizeJson(raw: string): string {
+  // 코드블록 제거
+  let clean = raw.replace(/```json|```/gi, "").trim();
+  // JSON 문자열 값 안의 제어문자 제거
+  clean = clean.replace(/[\u0000-\u001F\u007F]/g, (char) => {
+    if (char === "\n") return "\\n";
+    if (char === "\r") return "\\r";
+    if (char === "\t") return "\\t";
+    return "";
+  });
+  return clean;
+}
+
+export async function deepAnalyzeDocument(
+  fileContent: string,
+  fileName: string
+): Promise<AnalyzedDocument> {
   const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `당신은 한국의 대기업 및 공공기관 전문 문서 양식 설계자입니다.
-다음 요청에 맞는 문서/양식 작성 템플릿을 JSON으로만 생성해줘. JSON 외 다른 텍스트 절대 포함 금지.
+  // 파일 내용의 특수문자 사전 정리
+  const safeContent = fileContent
+    .slice(0, 4000)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
 
-[요구사항 - 한국 업무환경 최적화]
-1. 언어/표현: 한국어 비즈니스 용어, 격식있는 공손한 표현 방식 사용.
-2. 문서 구조: 국내 기업/기관에서 일반적으로 사용하는 문서 구조 반영.
-3. 실용성: 모든 필드에는 사용자가 Tab키를 누르면 바로 채워질 수 있는 매우 구체적이고 현실적인 한국어 예시(placeholder)를 필수로 작성할 것. (예: "홍길동", "2026-03-05", "본 보고서는 3분기 실적 향상을 위한...")
+  const response = await fetch(GEMINI_URL(API_KEY), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{
+          text: `너는 전문 문서 분석 AI야. 아래 문서를 심층 분석해서 반드시 유효한 JSON만 반환해. 규칙: 1)JSON 외 텍스트 금지 2)코드블록 금지 3)문자열 값 안에 줄바꿈 금지(공백으로 대체) 4)큰따옴표 안에 큰따옴표 금지.
 
-양식명: "${formType}"
-추가 요청사항: "${prompt}"
+파일명: ${fileName}
+문서내용: ${safeContent}
 
-출력 JSON 형식:
+반환형식:
+{"title":"문서제목","documentType":"보고서","summary":"요약 한두문장","deepAnalysis":{"purpose":"목적 한문장","coreMessage":"핵심메시지 한문장","targetAudience":"대상독자","writingStyle":"문체","tone":"톤","qualityScore":80,"qualityReason":"품질이유 한문장","keywords":["키워드1","키워드2","키워드3","키워드4","키워드5"],"suggestions":["제안1","제안2","제안3"],"structureEvaluation":"구조평가 한두문장","estimatedReadTime":"약 3분"},"sections":[{"id":"section_1","title":"섹션제목","originalText":"섹션내용 한두문장","aiGenerated":false,"userIntent":"","importance":"high"}]}`
+        }]
+      }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 3000,
+        responseMimeType: "application/json"
+      }
+    })
+  });
+
+  const data = await response.json();
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const clean = sanitizeJson(raw);
+
+  try {
+    return JSON.parse(clean) as AnalyzedDocument;
+  } catch {
+    // 파싱 실패시 JSON 부분만 추출 재시도
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]) as AnalyzedDocument;
+    throw new Error("JSON 파싱 실패: " + clean.slice(0, 100));
+  }
+}
+
+export async function generateSectionText(
+  sectionTitle: string,
+  originalText: string,
+  userIntent: string,
+  documentType: string,
+  deepAnalysis?: DeepAnalysis
+): Promise<string> {
+  const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+  const contextHint = deepAnalysis
+    ? `\n문서 톤: ${deepAnalysis.tone}\n문체: ${deepAnalysis.writingStyle}\n대상 독자: ${deepAnalysis.targetAudience}\n핵심 키워드: ${deepAnalysis.keywords.join(", ")}`
+    : "";
+
+  const response = await fetch(GEMINI_URL(API_KEY), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{
+          text: `너는 전문 문서 작성 AI야. 아래 조건에 맞게 자연스럽고 사람이 쓴 것처럼 작성해줘. 텍스트만 반환하고 다른 설명 절대 하지 마.
+
+문서 유형: ${documentType}
+섹션 제목: ${sectionTitle}
+원본 양식: ${originalText}
+작성자 의도: ${userIntent}${contextHint}
+
+조건:
+- 전문적이고 격식 있는 문체
+- 원본 문서 톤과 문체 유지
+- 사람이 직접 쓴 것처럼 자연스럽게
+- AI 투의 표현 금지`
+        }]
+      }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
+    })
+  });
+
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+}
+
+export async function generateFormWithAI(prompt: string): Promise<GeneratedForm> {
+  const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+  const response = await fetch(GEMINI_URL(API_KEY), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{
+          text: `다음 요청에 맞는 폼을 JSON으로만 생성해줘. JSON 외 다른 텍스트 절대 포함 금지.
+
+요청: "${prompt}"
+
+출력 형식:
 {
-  "title": "생성된 폼의 공식 제목 (예: 신규 프로젝트 기안서)",
-  "version": "v1.0",
-  "date": "2026-03-06",
-  "sections": [
+  "title": "폼 제목",
+  "description": "폼 설명",
+  "fields": [
     {
-      "title": "섹션 제목 (예: 1. 기본 정보)",
-      "description": "섹션 설명 (선택적)",
-      "fields": [
-        {
-          "id": "고유영문ID",
-          "type": "text|email|textarea|select|radio|checkbox|date",
-          "label": "필드명",
-          "required": true,
-          "placeholder": "Tab 키로 바로 적용될 구체적인 예시 내용",
-          "options": ["옵션1", "옵션2"] // select, radio, checkbox일 경우만
-        }
-      ]
+      "type": "text",
+      "label": "필드명",
+      "required": true,
+      "placeholder": "힌트텍스트",
+      "options": ["옵션1","옵션2"]
     }
   ]
 }`
-          }]
-        }],
-        generationConfig: { temperature: 0.7 },
-      }),
-    }
-  );
+        }]
+      }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+    })
+  });
 
   const data = await response.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const jsonStr = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-  return JSON.parse(jsonStr);
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return JSON.parse(text.replace(/```json|```/gi, "").trim()) as GeneratedForm;
 }
