@@ -37,17 +37,18 @@ export default function DocumentWriter() {
     setLoading(true);
     setAnalyzeError(null);
 
-    // TXT 파일이 아닌 바이너리 파일 업로드 시 안내
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext && !['txt'].includes(ext)) {
-      toast.info("참고: 현재 데모 버전에서는 TXT 파일 외(DOCX, PDF 등) 업로드 시 텍스트가 깨질 수 있습니다.");
+    if (ext === 'hwp') {
+      toast.info("구형 HWP 파일은 보안/구조상 일부 텍스트가 누락될 수 있습니다. 가급적 HWPX나 PDF를 권장합니다.");
+    } else if (ext === 'doc' || ext === 'ppt') {
+      toast.info("구형 DOC, PPT 파일은 텍스트 추출이 불완전할 수 있습니다.");
     }
 
     try {
       const text = await readFileAsText(file);
       
       if (!text || text.trim().length < 10) {
-        throw new Error("텍스트를 읽을 수 없습니다. 올바른 TXT 파일을 사용해주세요.");
+        throw new Error("텍스트를 추출할 수 없습니다. 내용이 비어있거나 암호화된 파일인지 확인해주세요.");
       }
       setRawText(text);
       toast.info("AI가 문서를 심층 분석 중...");
@@ -225,14 +226,14 @@ export default function DocumentWriter() {
                 {isDragging ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 업로드"}
               </h3>
               <p className="text-muted-foreground text-sm mb-6">
-                TXT 파일 권장 (ANSI, UTF-8 모두 지원)<br />
-                <span className="text-xs text-destructive/80">DOCX, PDF 바이너리 파일은 텍스트 파싱 기능이 추가되어야 완벽히 지원됩니다.</span>
+                TXT · PDF · DOCX · XLSX · PPTX · HWP(X) 지원<br />
+                <span className="text-xs text-primary/80">내부 텍스트를 자동으로 감지하고 추출합니다.</span>
               </p>
               <Button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}>
                 파일 선택하기
               </Button>
               <input ref={fileRef} type="file" className="hidden"
-                accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx"
+                accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx,.hwp,.hwpx,.csv"
                 onChange={handleFileInput} />
             </div>
           </div>
@@ -539,28 +540,105 @@ function AnalysisCard({ icon, label, value }: { icon: string; label: string; val
   );
 }
 
-// 수정된 부분: 인코딩 자동 감지 로직 추가
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        const buffer = e.target?.result as ArrayBuffer;
-        const uint8Array = new Uint8Array(buffer);
-        let text = "";
-        try {
-          // 1. 먼저 UTF-8로 엄격하게 디코딩 시도
-          text = new TextDecoder("utf-8", { fatal: true }).decode(uint8Array);
-        } catch (err) {
-          // 2. 실패 시 한국어 윈도우 기본 인코딩인 EUC-KR(ANSI)로 디코딩
-          text = new TextDecoder("euc-kr").decode(uint8Array);
-        }
-        resolve(text);
-      } catch (error) {
-        reject(error);
+/** * 파일 확장자에 따라 알맞은 파서를 동적으로 불러와 텍스트를 추출합니다.
+ */
+async function readFileAsText(file: File): Promise<string> {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  const buffer = await file.arrayBuffer();
+
+  try {
+    // 1. DOCX (Word 문서)
+    if (ext === 'docx') {
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+      return result.value;
+    }
+
+    // 2. Excel (XLSX, XLS, CSV)
+    if (['xlsx', 'xls', 'csv'].includes(ext || '')) {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      let text = '';
+      workbook.SheetNames.forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName];
+        text += XLSX.utils.sheet_to_csv(sheet) + '\n\n';
+      });
+      return text;
+    }
+
+    // 3. PDF
+    if (ext === 'pdf') {
+      const pdfjsLib = await import('pdfjs-dist');
+      // 웹 워커 CDN 연동 (Vite 환경 충돌 방지용)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((item: any) => item.str).join(' ') + '\n';
       }
-    };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
+      return text;
+    }
+
+    // 4. PPTX (PowerPoint)
+    if (ext === 'pptx') {
+      const JSZip = (await import('jszip')).default;
+      const zip = await JSZip.loadAsync(buffer);
+      let text = '';
+      const slideRegex = /ppt\/slides\/slide\d+\.xml/;
+      for (const relativePath in zip.files) {
+        if (slideRegex.test(relativePath)) {
+          const xmlData = await zip.files[relativePath].async('text');
+          // XML 내부의 텍스트 노드 강제 추출
+          const matches = xmlData.match(/<a:t>([^<]*)<\/a:t>/g);
+          if (matches) {
+            text += matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
+          }
+        }
+      }
+      return text;
+    }
+
+    // 5. HWPX (최신 한글 포맷)
+    if (ext === 'hwpx') {
+       const JSZip = (await import('jszip')).default;
+       const zip = await JSZip.loadAsync(buffer);
+       let text = '';
+       for (const relativePath in zip.files) {
+         if (relativePath.endsWith('.xml')) {
+           const xmlData = await zip.files[relativePath].async('text');
+           const matches = xmlData.match(/<hp:t[^>]*>([^<]*)<\/hp:t>/g);
+           if (matches) {
+              text += matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
+           }
+         }
+       }
+       return text;
+    }
+
+    // 6. 구형 HWP (바이너리 포맷 강제 스캐닝 폴백)
+    if (ext === 'hwp') {
+       const fallbackText = decodeTextFallback(buffer);
+       const matched = fallbackText.match(/[가-힣a-zA-Z0-9\s\.\,\!\?]{2,}/g);
+       return matched ? matched.join(' ') : fallbackText;
+    }
+
+    // 7. 일반 TXT 등 기타 파일
+    return decodeTextFallback(buffer);
+
+  } catch (error) {
+    console.error("파일 파싱 에러:", error);
+    return decodeTextFallback(buffer);
+  }
+}
+
+// 텍스트 파일 인코딩(UTF-8 / EUC-KR) 자동 판별 함수
+function decodeTextFallback(buffer: ArrayBuffer): string {
+  const uint8Array = new Uint8Array(buffer);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(uint8Array);
+  } catch (err) {
+    return new TextDecoder("euc-kr").decode(uint8Array);
+  }
 }
