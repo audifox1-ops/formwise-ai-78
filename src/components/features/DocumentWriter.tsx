@@ -17,6 +17,40 @@ const IMPORTANCE_COLOR = {
 
 const IMPORTANCE_LABEL = { high: "중요", medium: "보통", low: "낮음" };
 
+// 텍스트가 CSV 형태(콤마로 구분된 표 데이터)인지 감지하고 표 형태로 렌더링하는 헬퍼 함수
+function renderTextOrTable(text: string) {
+  if (!text) return null;
+  
+  const lines = text.trim().split('\n');
+  // 3줄 이상이고, 모든 줄이 콤마(,)를 포함하고 있으며 열 개수가 비슷하다면 표로 간주
+  const isCsvLike = lines.length > 2 && lines.every(l => l.includes(','));
+  
+  if (isCsvLike) {
+    return (
+      <div className="overflow-x-auto bg-white border rounded-lg shadow-sm my-2">
+        <table className="w-full text-sm text-left border-collapse min-w-max">
+          <tbody>
+            {lines.map((line, i) => {
+              const cells = line.split(',');
+              return (
+                <tr key={i} className={`border-b ${i === 0 ? 'bg-muted/50 font-semibold' : 'hover:bg-muted/20'}`}>
+                  {cells.map((cell, j) => (
+                    <td key={j} className="px-3 py-2 border-r last:border-r-0 whitespace-nowrap">
+                      {cell.trim()}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>;
+}
+
 export default function DocumentWriter() {
   const [step, setStep]         = useState<"upload"|"analyzing"|"deepResult"|"edit"|"done">("upload");
   const [doc, setDoc]           = useState<AnalyzedDocument | null>(null);
@@ -267,7 +301,7 @@ export default function DocumentWriter() {
               <p className="text-muted-foreground text-sm">{fileName}</p>
             </div>
             <div className="flex justify-center gap-4 text-sm text-muted-foreground flex-wrap">
-              {["문서 구조 파악", "문체·톤 분석", "핵심 키워드 추출", "개선 제안 생성"].map(t => (
+              {["문서 구조 파악", "문체·톤 분석", "핵심 표 데이터 감지", "개선 제안 생성"].map(t => (
                 <span key={t} className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />{t}
                 </span>
@@ -325,32 +359,15 @@ export default function DocumentWriter() {
               </div>
 
               <div className="bg-muted/50 rounded-xl p-4">
-                <p className="text-sm font-semibold mb-1">📐 구조 평가</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{doc.deepAnalysis.structureEvaluation}</p>
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold mb-2">💬 AI 개선 제안</p>
-                <div className="space-y-2">
+                <p className="text-sm font-semibold mb-1">💬 AI 개선 제안</p>
+                <div className="space-y-2 mt-2">
                   {doc.deepAnalysis.suggestions.map((s, i) => (
-                    <div key={i} className="flex gap-3 bg-muted/40 rounded-xl p-3">
+                    <div key={i} className="flex gap-3 bg-background rounded-xl p-3 border">
                       <span className="text-primary font-bold text-sm flex-shrink-0">{i + 1}</span>
                       <p className="text-sm text-muted-foreground leading-relaxed">{s}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
-
-            <div className="bg-background border rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold">📄 원본 텍스트</h4>
-                <span className="text-xs text-muted-foreground">{rawText.length.toLocaleString()}자</span>
-              </div>
-              <div className="bg-muted/50 rounded-xl p-4 max-h-48 overflow-y-auto">
-                <pre className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-sans">
-                  {rawText.slice(0, 1500)}{rawText.length > 1500 ? "\n\n... (이하 생략)" : ""}
-                </pre>
               </div>
             </div>
 
@@ -386,7 +403,7 @@ export default function DocumentWriter() {
 
                   {editingId === section.id + "_original" ? (
                     <div className="space-y-2">
-                      <textarea className="w-full border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary min-h-[90px] resize-y"
+                      <textarea className="w-full border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary min-h-[90px] resize-y font-mono"
                         value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
                       <div className="flex gap-2">
                         <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
@@ -395,13 +412,15 @@ export default function DocumentWriter() {
                     </div>
                   ) : (
                     <div className="group relative bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap line-clamp-3 pr-16">
-                        {section.originalText}
-                      </p>
+                      {/* 표 형태로 자동 변환되는 컴포넌트 호출 */}
+                      <div className="text-foreground/80 pr-16 max-h-48 overflow-hidden relative">
+                        {renderTextOrTable(section.originalText)}
+                        <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-muted/50 to-transparent pointer-events-none" />
+                      </div>
                       <button
                         onClick={() => { setEditingId(section.id + "_original"); setEditText(section.originalText); }}
-                        className="absolute top-2 right-2 text-xs opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1 hover:text-primary">
-                        ✏️ 편집
+                        className="absolute top-2 right-2 text-xs opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1 hover:text-primary z-10">
+                        ✏️ 텍스트 편집
                       </button>
                     </div>
                   )}
@@ -416,16 +435,16 @@ export default function DocumentWriter() {
                 <button
                   onClick={() => setWriteMode("rewrite")}
                   className={`p-4 border rounded-xl text-left transition-all ${
-                    writeMode === "rewrite" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50 bg-muted/30"
+                    writeMode === "rewrite" ? "border-primary bg-primary/5 ring-1 ring-primary shadow-sm" : "hover:border-primary/50 bg-muted/30"
                   }`}
                 >
-                  <div className="font-semibold mb-1">📝 기존 내용 다듬기</div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">원본 내용을 바탕으로 AI가 문맥에 맞게 수정하고 보완합니다.</p>
+                  <div className="font-semibold mb-1">📝 기존 데이터 다듬기</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">원본 데이터(표/텍스트)를 바탕으로 AI가 문맥에 맞게 수정하고 보완합니다.</p>
                 </button>
                 <button
                   onClick={() => setWriteMode("new")}
                   className={`p-4 border rounded-xl text-left transition-all ${
-                    writeMode === "new" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50 bg-muted/30"
+                    writeMode === "new" ? "border-primary bg-primary/5 ring-1 ring-primary shadow-sm" : "hover:border-primary/50 bg-muted/30"
                   }`}
                 >
                   <div className="font-semibold mb-1">✨ 구조만 유지하고 새로 작성</div>
@@ -437,7 +456,7 @@ export default function DocumentWriter() {
             {/* 버튼: 미리보기 & 다음 단계 */}
             <div className="flex justify-end gap-3 pt-2">
               <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
-                👀 미리보기
+                👀 미리보기 (표 적용)
               </Button>
               <Button size="lg" onClick={handleStartEdit}>
                 확인 완료 · AI 작성 시작 →
@@ -481,7 +500,7 @@ export default function DocumentWriter() {
 
                 {editingId === section.id + "_edit" ? (
                   <div className="space-y-2">
-                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
+                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y font-mono"
                       value={editText} onChange={e => setEditText(e.target.value)} autoFocus placeholder="내용을 입력하세요..." />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
@@ -490,9 +509,11 @@ export default function DocumentWriter() {
                   </div>
                 ) : (
                   <div className="group relative bg-muted/50 rounded-xl p-4 min-h-[80px]">
-                    <p className={`text-sm leading-relaxed whitespace-pre-wrap pr-16 ${section.aiGenerated ? "text-foreground" : "text-muted-foreground"}`}>
-                      {section.originalText || "✨ 비어있는 섹션입니다. 아래에 의도를 입력하고 AI에게 지시하거나 직접 내용을 채워보세요."}
-                    </p>
+                    <div className={`text-foreground/90 pr-16 ${!section.originalText && "text-muted-foreground italic"}`}>
+                      {section.originalText 
+                        ? renderTextOrTable(section.originalText) 
+                        : "✨ 비어있는 섹션입니다. 아래에 의도를 입력하고 AI에게 지시하거나 직접 내용을 채워보세요."}
+                    </div>
                     <button
                       onClick={() => { setEditingId(section.id + "_edit"); setEditText(section.originalText); }}
                       className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1 hover:text-primary">
@@ -504,7 +525,7 @@ export default function DocumentWriter() {
                 <div className="flex gap-2">
                   <input type="text"
                     className="flex-1 border rounded-lg px-3 py-2 text-sm bg-muted/50 outline-none focus:border-primary"
-                    placeholder="예) 3분기 매출 15% 증가, 신규 고객 확보 전략 중심으로"
+                    placeholder="예) 수당 지급 기준을 명확하게 요약해줘"
                     value={intents[section.id] || ""}
                     onChange={e => setIntents(p => ({ ...p, [section.id]: e.target.value }))} />
                   <Button size="sm" onClick={() => generateOne(section)} disabled={loadingSection === section.id}>
@@ -518,7 +539,7 @@ export default function DocumentWriter() {
 
             <div className="flex justify-end gap-3">
               <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
-                👀 미리보기
+                👀 미리보기 (표 적용)
               </Button>
               <Button size="lg" onClick={() => setStep("done")}>완료 · 최종 확인 →</Button>
             </div>
@@ -561,7 +582,7 @@ export default function DocumentWriter() {
 
                 {editingId === section.id + "_done" ? (
                   <div className="space-y-2">
-                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
+                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y font-mono"
                       value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
@@ -569,22 +590,24 @@ export default function DocumentWriter() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">{section.originalText}</p>
+                  <div className="text-foreground/90">
+                    {renderTextOrTable(section.originalText)}
+                  </div>
                 )}
               </div>
             ))}
 
             <div className="flex justify-center pt-4">
-              <Button size="lg" onClick={exportDoc}>📥 최종 문서 다운로드</Button>
+              <Button size="lg" onClick={exportDoc}>📥 최종 텍스트 다운로드</Button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ── 미리보기 모달 (A4 문서 스타일 적용) ── */}
+      {/* ── 미리보기 모달 (A4 문서 스타일 및 표 렌더링 적용) ── */}
       {isPreviewOpen && doc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
-          <div className="bg-muted/30 border shadow-2xl rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-muted/30 border shadow-2xl rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
             {/* 상단 헤더 */}
             <div className="flex items-center justify-between p-4 sm:p-6 bg-background border-b z-10">
@@ -595,8 +618,8 @@ export default function DocumentWriter() {
                     {writeMode === "rewrite" ? "기존 내용 유지 모드" : "빈 템플릿 모드"}
                   </span>
                 </h3>
-                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                  * 텍스트 구조 확인용 화면입니다. (원본 디자인은 포함되지 않습니다)
+                <p className="text-xs sm:text-sm text-destructive mt-1 font-medium">
+                  * 주의: 원본 엑셀의 글꼴이나 색상 등 디자인은 유지되지 않습니다. (웹 텍스트 추출의 기술적 한계)
                 </p>
               </div>
               <button 
@@ -610,25 +633,25 @@ export default function DocumentWriter() {
             {/* 스크롤 가능한 A4 용지 영역 */}
             <div className="overflow-y-auto flex-1 p-4 sm:p-10 flex justify-center">
               {/* A4 스타일 페이퍼 */}
-              <div className="bg-white shadow-md w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-16 text-black">
+              <div className="bg-white shadow-md w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-12 text-black">
                 
                 {/* 문서 제목 */}
-                <h1 className="text-2xl sm:text-4xl font-extrabold text-center mb-12 pb-6 border-b-2 border-black/20">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-center mb-10 pb-4 border-b-2 border-black/20">
                   {doc.title}
                 </h1>
                 
                 {/* 문서 섹션 내용 */}
-                <div className="space-y-10">
+                <div className="space-y-12">
                   {doc.sections.map((section, idx) => (
                     <div key={section.id} className="space-y-4">
-                      <h2 className="text-xl sm:text-2xl font-bold text-black border-l-4 border-primary pl-3">
+                      <h2 className="text-xl font-bold text-black border-l-4 border-primary pl-3">
                         {idx + 1}. {section.title}
                       </h2>
-                      <p className="text-sm sm:text-base leading-loose whitespace-pre-wrap text-gray-800 break-words pl-4">
+                      <div className="text-sm sm:text-base leading-relaxed text-gray-800 break-words pl-4">
                         {writeMode === "rewrite" 
-                          ? section.originalText 
+                          ? renderTextOrTable(section.originalText)
                           : <span className="text-gray-400 italic">... [AI가 작성 의도에 맞춰 이곳에 내용을 채워 넣습니다] ...</span>}
-                      </p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -673,6 +696,7 @@ async function readFileAsText(file: File): Promise<string> {
       return result.value;
     }
 
+    // 엑셀, CSV 데이터를 표 형식(콤마 구분)으로 강제 유지하여 추출
     if (['xlsx', 'xls', 'csv'].includes(ext || '')) {
       // @ts-ignore
       const XLSX = await import('https://esm.sh/xlsx@0.18.5');
