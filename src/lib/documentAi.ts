@@ -58,7 +58,7 @@ export async function deepAnalyzeDocument(
     body: JSON.stringify({
       contents: [{
         parts: [{
-          text: `너는 전문 문서 분석 AI야. 아래 문서를 심층적으로 분석해서 JSON으로만 반환해. 절대로 JSON 외 텍스트, 마크다운 코드블록(\`\`\`), 설명 포함 금지.
+          text: `너는 전문 문서 분석 AI야. 아래 문서를 심층적으로 분석해서 JSON으로만 반환해. 절대로 JSON 외 텍스트, 마크다운 코드블록, 설명 포함 금지.
 
 파일명: ${fileName}
 문서 내용:
