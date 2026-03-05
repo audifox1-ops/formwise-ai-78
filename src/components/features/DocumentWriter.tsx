@@ -30,8 +30,11 @@ export default function DocumentWriter() {
   const [isDragging, setIsDragging] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   
-  // 새로 추가된 상태: 작성 모드 (기존 텍스트 유지 vs 구조만 남기고 빈 화면)
+  // 상태: 작성 모드 (기존 텍스트 유지 vs 구조만 남기고 빈 화면)
   const [writeMode, setWriteMode] = useState<"rewrite" | "new">("rewrite");
+  
+  // 새로 추가된 상태: 미리보기 모달 열림 여부
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -185,6 +188,7 @@ export default function DocumentWriter() {
     setIntents({}); setEditingId(null);
     setAnalyzeError(null);
     setWriteMode("rewrite");
+    setIsPreviewOpen(false);
   };
 
   const steps = [
@@ -198,7 +202,7 @@ export default function DocumentWriter() {
   const currentIdx = stepOrder.indexOf(step);
 
   return (
-    <section className="py-24 px-6 bg-muted/20">
+    <section className="relative py-24 px-6 bg-muted/20 min-h-screen">
       <div className="max-w-4xl mx-auto">
         <p className="text-sm font-semibold tracking-widest text-primary uppercase mb-3">AI 문서 작성</p>
         <h2 className="text-4xl font-bold mb-3">문서를 업로드하면<br />AI가 심층 분석 후 작성합니다</h2>
@@ -435,7 +439,11 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
+            {/* 버튼: 미리보기 & 다음 단계 */}
+            <div className="flex justify-end gap-3 pt-2">
+              <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
+                👀 미리보기
+              </Button>
               <Button size="lg" onClick={handleStartEdit}>
                 확인 완료 · AI 작성 시작 →
               </Button>
@@ -574,6 +582,50 @@ export default function DocumentWriter() {
           </div>
         )}
       </div>
+
+      {/* ── 미리보기 모달 (Preview Modal) ── */}
+      {isPreviewOpen && doc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+          <div className="bg-background border shadow-2xl rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center justify-between p-6 border-b">
+              <div>
+                <h3 className="text-xl font-bold">👀 문서 미리보기</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {writeMode === "rewrite" 
+                    ? "선택된 모드: 원본 내용이 복사되어 유지된 형태입니다." 
+                    : "선택된 모드: 구조만 유지되고 내용은 모두 비워진 템플릿 형태입니다."}
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsPreviewOpen(false)} 
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 space-y-8 bg-muted/20">
+              {doc.sections.map(section => (
+                <div key={section.id} className="space-y-3 bg-background p-5 rounded-xl border">
+                  <h4 className="font-bold text-lg text-primary border-b pb-2">[{section.title}]</h4>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/80 min-h-[40px]">
+                    {writeMode === "rewrite" 
+                      ? section.originalText 
+                      : <span className="text-muted-foreground italic">✨ (이곳에 새로운 내용이 작성됩니다)</span>}
+                  </p>
+                </div>
+              ))}
+            </div>
+            
+            <div className="p-4 border-t flex justify-end bg-background">
+              <Button onClick={() => setIsPreviewOpen(false)}>확인 닫기</Button>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }
