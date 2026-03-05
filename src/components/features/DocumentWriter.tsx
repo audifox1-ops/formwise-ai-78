@@ -540,7 +540,8 @@ function AnalysisCard({ icon, label, value }: { icon: string; label: string; val
   );
 }
 
-/** * 파일 확장자에 따라 알맞은 파서를 동적으로 불러와 텍스트를 추출합니다.
+/** * 파일 확장자에 따라 CDN을 통해 파서를 동적으로 불러와 텍스트를 추출합니다.
+ * (npm install 없이 브라우저에서 바로 동작합니다)
  */
 async function readFileAsText(file: File): Promise<string> {
   const ext = file.name.split('.').pop()?.toLowerCase();
@@ -549,17 +550,20 @@ async function readFileAsText(file: File): Promise<string> {
   try {
     // 1. DOCX (Word 문서)
     if (ext === 'docx') {
-      const mammoth = await import('mammoth');
+      // @ts-ignore
+      const mammothModule = await import('https://esm.sh/mammoth@1.6.0');
+      const mammoth = mammothModule.default || mammothModule;
       const result = await mammoth.extractRawText({ arrayBuffer: buffer });
       return result.value;
     }
 
     // 2. Excel (XLSX, XLS, CSV)
     if (['xlsx', 'xls', 'csv'].includes(ext || '')) {
-      const XLSX = await import('xlsx');
+      // @ts-ignore
+      const XLSX = await import('https://esm.sh/xlsx@0.18.5');
       const workbook = XLSX.read(buffer, { type: 'array' });
       let text = '';
-      workbook.SheetNames.forEach(sheetName => {
+      workbook.SheetNames.forEach((sheetName: string) => {
         const sheet = workbook.Sheets[sheetName];
         text += XLSX.utils.sheet_to_csv(sheet) + '\n\n';
       });
@@ -568,9 +572,9 @@ async function readFileAsText(file: File): Promise<string> {
 
     // 3. PDF
     if (ext === 'pdf') {
-      const pdfjsLib = await import('pdfjs-dist');
-      // 웹 워커 CDN 연동 (Vite 환경 충돌 방지용)
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      // @ts-ignore
+      const pdfjsLib = await import('https://esm.sh/pdfjs-dist@3.11.174');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
       const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
       let text = '';
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -583,17 +587,18 @@ async function readFileAsText(file: File): Promise<string> {
 
     // 4. PPTX (PowerPoint)
     if (ext === 'pptx') {
-      const JSZip = (await import('jszip')).default;
+      // @ts-ignore
+      const JSZipModule = await import('https://esm.sh/jszip@3.10.1');
+      const JSZip = JSZipModule.default || JSZipModule;
       const zip = await JSZip.loadAsync(buffer);
       let text = '';
       const slideRegex = /ppt\/slides\/slide\d+\.xml/;
       for (const relativePath in zip.files) {
         if (slideRegex.test(relativePath)) {
           const xmlData = await zip.files[relativePath].async('text');
-          // XML 내부의 텍스트 노드 강제 추출
           const matches = xmlData.match(/<a:t>([^<]*)<\/a:t>/g);
           if (matches) {
-            text += matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
+            text += matches.map((m: string) => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
           }
         }
       }
@@ -602,7 +607,9 @@ async function readFileAsText(file: File): Promise<string> {
 
     // 5. HWPX (최신 한글 포맷)
     if (ext === 'hwpx') {
-       const JSZip = (await import('jszip')).default;
+       // @ts-ignore
+       const JSZipModule = await import('https://esm.sh/jszip@3.10.1');
+       const JSZip = JSZipModule.default || JSZipModule;
        const zip = await JSZip.loadAsync(buffer);
        let text = '';
        for (const relativePath in zip.files) {
@@ -610,7 +617,7 @@ async function readFileAsText(file: File): Promise<string> {
            const xmlData = await zip.files[relativePath].async('text');
            const matches = xmlData.match(/<hp:t[^>]*>([^<]*)<\/hp:t>/g);
            if (matches) {
-              text += matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
+              text += matches.map((m: string) => m.replace(/<[^>]+>/g, '')).join(' ') + '\n';
            }
          }
        }
