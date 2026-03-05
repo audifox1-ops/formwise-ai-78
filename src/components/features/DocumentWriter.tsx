@@ -17,38 +17,61 @@ const IMPORTANCE_COLOR = {
 
 const IMPORTANCE_LABEL = { high: "중요", medium: "보통", low: "낮음" };
 
-// 텍스트가 CSV 형태(콤마로 구분된 표 데이터)인지 감지하고 표 형태로 렌더링하는 헬퍼 함수
-function renderTextOrTable(text: string) {
+// ✨ 추가됨: 실제 엑셀 화면처럼 보이도록 렌더링하는 전용 스프레드시트 컴포넌트
+function ExcelLikeGrid({ text }: { text: string }) {
   if (!text) return null;
-  
   const lines = text.trim().split('\n');
-  // 3줄 이상이고, 모든 줄이 콤마(,)를 포함하고 있으며 열 개수가 비슷하다면 표로 간주
-  const isCsvLike = lines.length > 2 && lines.every(l => l.includes(','));
-  
-  if (isCsvLike) {
-    return (
-      <div className="overflow-x-auto bg-white border rounded-lg shadow-sm my-2">
-        <table className="w-full text-sm text-left border-collapse min-w-max">
-          <tbody>
-            {lines.map((line, i) => {
-              const cells = line.split(',');
-              return (
-                <tr key={i} className={`border-b ${i === 0 ? 'bg-muted/50 font-semibold' : 'hover:bg-muted/20'}`}>
-                  {cells.map((cell, j) => (
-                    <td key={j} className="px-3 py-2 border-r last:border-r-0 whitespace-nowrap">
-                      {cell.trim()}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
+  if (lines.length < 2 || !lines.every(l => l.includes(','))) {
+    return <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>;
   }
 
-  return <p className="text-sm leading-relaxed whitespace-pre-wrap">{text}</p>;
+  const rows = lines.map(line => line.split(','));
+  const colCount = Math.max(...rows.map(r => r.length));
+  
+  // A, B, C, D... 엑셀 알파벳 헤더 생성
+  const getColName = (n: number) => {
+    let name = '';
+    while (n >= 0) {
+      name = String.fromCharCode((n % 26) + 65) + name;
+      n = Math.floor(n / 26) - 1;
+    }
+    return name;
+  };
+
+  return (
+    <div className="overflow-x-auto bg-[#f8f9fa] border rounded-sm shadow-sm max-h-[400px] overflow-y-auto font-sans">
+      <table className="w-full text-xs text-left border-collapse min-w-max">
+        <thead className="sticky top-0 z-10 bg-[#f1f3f4] shadow-[0_1px_0_#ccc]">
+          <tr>
+            {/* 좌상단 빈칸 */}
+            <th className="border-r border-b border-[#ccc] bg-[#f1f3f4] w-10 text-center text-[#666] select-none p-1 font-normal"></th>
+            {/* 알파벳 헤더 */}
+            {Array.from({ length: colCount }).map((_, i) => (
+              <th key={i} className="border-r border-b border-[#ccc] px-3 py-1 text-center font-normal text-[#666] select-none min-w-[100px]">
+                {getColName(i)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rIdx) => (
+            <tr key={rIdx} className="bg-white hover:bg-[#e8f0fe] transition-colors">
+              {/* 좌측 숫자 헤더 */}
+              <td className="border-r border-b border-[#ccc] bg-[#f1f3f4] text-center text-[#666] select-none p-1 font-normal sticky left-0 z-0 w-10">
+                {rIdx + 1}
+              </td>
+              {/* 실제 데이터 셀 */}
+              {Array.from({ length: colCount }).map((_, cIdx) => (
+                <td key={cIdx} className="border-r border-b border-[#e0e0e0] px-3 py-1.5 whitespace-nowrap focus:outline-blue-500 focus:bg-white" tabIndex={0}>
+                  {row[cIdx]?.trim() || ''}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default function DocumentWriter() {
@@ -77,7 +100,7 @@ export default function DocumentWriter() {
 
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (ext === 'hwp') {
-      toast.info("구형 HWP 파일은 보안/구조상 일부 텍스트가 누락될 수 있습니다. 가급적 HWPX나 PDF를 권장합니다.");
+      toast.info("구형 HWP 파일은 보안/구조상 일부 텍스트가 누락될 수 있습니다.");
     } else if (ext === 'doc' || ext === 'ppt') {
       toast.info("구형 DOC, PPT 파일은 텍스트 추출이 불완전할 수 있습니다.");
     }
@@ -350,16 +373,7 @@ export default function DocumentWriter() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold mb-2">🔑 핵심 키워드</p>
-                <div className="flex flex-wrap gap-2">
-                  {doc.deepAnalysis.keywords.map(k => (
-                    <span key={k} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full border border-primary/20 font-medium">{k}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-muted/50 rounded-xl p-4">
-                <p className="text-sm font-semibold mb-1">💬 AI 개선 제안</p>
+                <p className="text-sm font-semibold mb-2">💬 AI 개선 제안</p>
                 <div className="space-y-2 mt-2">
                   {doc.deepAnalysis.suggestions.map((s, i) => (
                     <div key={i} className="flex gap-3 bg-background rounded-xl p-3 border">
@@ -373,7 +387,7 @@ export default function DocumentWriter() {
 
             <div className="bg-background border rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <h4 className="font-semibold">🗂 감지된 섹션 ({doc.sections.length}개)</h4>
+                <h4 className="font-semibold">🗂 감지된 데이터 섹션 ({doc.sections.length}개)</h4>
                 <Button size="sm" variant="outline" onClick={addSection}>+ 섹션 추가</Button>
               </div>
               
@@ -412,10 +426,9 @@ export default function DocumentWriter() {
                     </div>
                   ) : (
                     <div className="group relative bg-muted/50 rounded-lg p-3">
-                      {/* 표 형태로 자동 변환되는 컴포넌트 호출 */}
-                      <div className="text-foreground/80 pr-16 max-h-48 overflow-hidden relative">
-                        {renderTextOrTable(section.originalText)}
-                        <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-muted/50 to-transparent pointer-events-none" />
+                      {/* 엑셀 스타일 표 컴포넌트 렌더링 */}
+                      <div className="text-foreground/80 overflow-hidden relative">
+                        <ExcelLikeGrid text={section.originalText} />
                       </div>
                       <button
                         onClick={() => { setEditingId(section.id + "_original"); setEditText(section.originalText); }}
@@ -456,7 +469,7 @@ export default function DocumentWriter() {
             {/* 버튼: 미리보기 & 다음 단계 */}
             <div className="flex justify-end gap-3 pt-2">
               <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
-                👀 미리보기 (표 적용)
+                👀 스프레드시트 미리보기
               </Button>
               <Button size="lg" onClick={handleStartEdit}>
                 확인 완료 · AI 작성 시작 →
@@ -509,9 +522,9 @@ export default function DocumentWriter() {
                   </div>
                 ) : (
                   <div className="group relative bg-muted/50 rounded-xl p-4 min-h-[80px]">
-                    <div className={`text-foreground/90 pr-16 ${!section.originalText && "text-muted-foreground italic"}`}>
+                    <div className={`text-foreground/90 ${!section.originalText && "text-muted-foreground italic"}`}>
                       {section.originalText 
-                        ? renderTextOrTable(section.originalText) 
+                        ? <ExcelLikeGrid text={section.originalText} />
                         : "✨ 비어있는 섹션입니다. 아래에 의도를 입력하고 AI에게 지시하거나 직접 내용을 채워보세요."}
                     </div>
                     <button
@@ -539,7 +552,7 @@ export default function DocumentWriter() {
 
             <div className="flex justify-end gap-3">
               <Button size="lg" variant="secondary" onClick={() => setIsPreviewOpen(true)}>
-                👀 미리보기 (표 적용)
+                👀 스프레드시트 미리보기
               </Button>
               <Button size="lg" onClick={() => setStep("done")}>완료 · 최종 확인 →</Button>
             </div>
@@ -591,7 +604,7 @@ export default function DocumentWriter() {
                   </div>
                 ) : (
                   <div className="text-foreground/90">
-                    {renderTextOrTable(section.originalText)}
+                    <ExcelLikeGrid text={section.originalText} />
                   </div>
                 )}
               </div>
@@ -604,66 +617,59 @@ export default function DocumentWriter() {
         )}
       </div>
 
-      {/* ── 미리보기 모달 (A4 문서 스타일 및 표 렌더링 적용) ── */}
+      {/* ── 엑셀 양식 미리보기 모달 ── */}
       {isPreviewOpen && doc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
-          <div className="bg-muted/30 border shadow-2xl rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white border shadow-2xl rounded-sm w-full max-w-6xl max-h-[95vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
-            {/* 상단 헤더 */}
-            <div className="flex items-center justify-between p-4 sm:p-6 bg-background border-b z-10">
-              <div>
-                <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
-                  👀 문서 미리보기
-                  <span className="text-xs font-normal px-2 py-1 bg-primary/10 text-primary rounded-full">
-                    {writeMode === "rewrite" ? "기존 내용 유지 모드" : "빈 템플릿 모드"}
-                  </span>
-                </h3>
-                <p className="text-xs sm:text-sm text-destructive mt-1 font-medium">
-                  * 주의: 원본 엑셀의 글꼴이나 색상 등 디자인은 유지되지 않습니다. (웹 텍스트 추출의 기술적 한계)
-                </p>
+            {/* 엑셀 스타일 상단 툴바 */}
+            <div className="flex items-center justify-between p-3 bg-[#107c41] text-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 p-1.5 rounded text-xs font-bold">X</div>
+                <div>
+                  <h3 className="text-sm font-semibold">{doc.title} - 저장됨</h3>
+                  <div className="flex gap-4 text-xs mt-1 text-white/80">
+                    <span className="cursor-pointer hover:text-white">파일</span>
+                    <span className="cursor-pointer hover:text-white border-b-2 border-white pb-1">홈</span>
+                    <span className="cursor-pointer hover:text-white">삽입</span>
+                    <span className="cursor-pointer hover:text-white">페이지 레이아웃</span>
+                    <span className="cursor-pointer hover:text-white">수식</span>
+                    <span className="cursor-pointer hover:text-white">데이터</span>
+                  </div>
+                </div>
               </div>
               <button 
                 onClick={() => setIsPreviewOpen(false)} 
-                className="p-2 hover:bg-muted rounded-full transition-colors"
+                className="p-1.5 hover:bg-white/20 rounded transition-colors text-xl leading-none"
               >
                 ✕
               </button>
             </div>
             
-            {/* 스크롤 가능한 A4 용지 영역 */}
-            <div className="overflow-y-auto flex-1 p-4 sm:p-10 flex justify-center">
-              {/* A4 스타일 페이퍼 */}
-              <div className="bg-white shadow-md w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-12 text-black">
-                
-                {/* 문서 제목 */}
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-center mb-10 pb-4 border-b-2 border-black/20">
-                  {doc.title}
-                </h1>
-                
-                {/* 문서 섹션 내용 */}
-                <div className="space-y-12">
-                  {doc.sections.map((section, idx) => (
-                    <div key={section.id} className="space-y-4">
-                      <h2 className="text-xl font-bold text-black border-l-4 border-primary pl-3">
-                        {idx + 1}. {section.title}
-                      </h2>
-                      <div className="text-sm sm:text-base leading-relaxed text-gray-800 break-words pl-4">
-                        {writeMode === "rewrite" 
-                          ? renderTextOrTable(section.originalText)
-                          : <span className="text-gray-400 italic">... [AI가 작성 의도에 맞춰 이곳에 내용을 채워 넣습니다] ...</span>}
-                      </div>
-                    </div>
-                  ))}
+            {/* 메인 스프레드시트 영역 */}
+            <div className="overflow-y-auto flex-1 bg-white">
+              <div className="p-4 border-b bg-[#f3f2f1] flex items-center gap-2 text-sm text-[#333]">
+                <div className="bg-white px-2 py-0.5 border shadow-sm w-16 text-center text-xs">A1</div>
+                <div className="bg-white px-2 py-0.5 border shadow-sm flex-1 font-mono text-xs flex items-center gap-2">
+                  <span className="italic text-gray-400 border-r pr-2">fx</span>
+                  {writeMode === "rewrite" ? "데이터 유지 모드" : "새 데이터 모드"}
                 </div>
-                
+              </div>
+
+              <div className="p-4 space-y-8">
+                {doc.sections.map((section, idx) => (
+                  <div key={section.id} className="space-y-2">
+                    <div className="font-bold text-[#107c41] text-sm">► 시트 {idx + 1}: {section.title}</div>
+                    {writeMode === "rewrite" 
+                      ? <ExcelLikeGrid text={section.originalText} />
+                      : <div className="p-8 border-2 border-dashed border-[#ccc] bg-[#fafafa] text-center text-gray-400 text-sm">
+                          [ AI가 데이터를 분석하여 이곳에 표를 생성할 예정입니다 ]
+                        </div>
+                    }
+                  </div>
+                ))}
               </div>
             </div>
-            
-            {/* 하단 닫기 버튼 */}
-            <div className="p-4 border-t flex justify-end bg-background z-10">
-              <Button size="lg" onClick={() => setIsPreviewOpen(false)}>닫기</Button>
-            </div>
-            
           </div>
         </div>
       )}
@@ -696,7 +702,6 @@ async function readFileAsText(file: File): Promise<string> {
       return result.value;
     }
 
-    // 엑셀, CSV 데이터를 표 형식(콤마 구분)으로 강제 유지하여 추출
     if (['xlsx', 'xls', 'csv'].includes(ext || '')) {
       // @ts-ignore
       const XLSX = await import('https://esm.sh/xlsx@0.18.5');
