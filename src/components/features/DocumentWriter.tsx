@@ -14,6 +14,7 @@ const IMPORTANCE_COLOR = {
   medium: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   low:    "bg-muted text-muted-foreground border-border",
 };
+
 const IMPORTANCE_LABEL = { high: "중요", medium: "보통", low: "낮음" };
 
 export default function DocumentWriter() {
@@ -35,21 +36,33 @@ export default function DocumentWriter() {
     setStep("analyzing");
     setLoading(true);
     setAnalyzeError(null);
+
+    // TXT 파일이 아닌 바이너리 파일 업로드 시 안내
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext && !['txt'].includes(ext)) {
+      toast.info("참고: 현재 데모 버전에서는 TXT 파일 외(DOCX, PDF 등) 업로드 시 텍스트가 깨질 수 있습니다.");
+    }
+
     try {
       const text = await readFileAsText(file);
+      
       if (!text || text.trim().length < 10) {
-        throw new Error("텍스트를 읽을 수 없습니다. TXT 또는 DOCX 파일을 사용해주세요.");
+        throw new Error("텍스트를 읽을 수 없습니다. 올바른 TXT 파일을 사용해주세요.");
       }
       setRawText(text);
       toast.info("AI가 문서를 심층 분석 중...");
+      
       const result = await deepAnalyzeDocument(text, file.name);
+      
       if (!result?.deepAnalysis) throw new Error("분석 결과가 올바르지 않습니다.");
       setDoc(result);
+      
       const init: Record<string, string> = {};
       result.sections.forEach(s => { init[s.id] = ""; });
       setIntents(init);
       setStep("deepResult");
       toast.success("심층 분석 완료!");
+      
     } catch (err: any) {
       const msg = err?.message ?? "알 수 없는 오류";
       setAnalyzeError(msg);
@@ -104,26 +117,33 @@ export default function DocumentWriter() {
 
   const generateOne = async (section: DocumentSection) => {
     if (!intents[section.id]?.trim()) { toast.error("작성 의도를 입력해주세요."); return; }
+    
     setLoadingSection(section.id);
     try {
       const text = await generateSectionText(
         section.title, section.originalText,
         intents[section.id], doc!.documentType, doc!.deepAnalysis
       );
+      
       setDoc(prev => prev ? {
         ...prev,
         sections: prev.sections.map(s =>
           s.id === section.id ? { ...s, originalText: text, aiGenerated: true } : s
         )
       } : prev);
+      
       toast.success(`"${section.title}" 작성 완료!`);
-    } catch { toast.error("생성 실패. 다시 시도해주세요."); }
-    finally { setLoadingSection(null); }
+    } catch { 
+      toast.error("생성 실패. 다시 시도해주세요."); 
+    } finally { 
+      setLoadingSection(null); 
+    }
   };
 
   const generateAll = async () => {
     const targets = doc?.sections.filter(s => intents[s.id]?.trim()) ?? [];
     if (!targets.length) { toast.error("의도를 입력한 섹션이 없습니다."); return; }
+    
     for (const s of targets) await generateOne(s);
     setStep("done");
   };
@@ -152,6 +172,7 @@ export default function DocumentWriter() {
     { key: "edit",       label: "③ AI 작성" },
     { key: "done",       label: "④ 완료" },
   ];
+  
   const stepOrder = ["upload","analyzing","deepResult","edit","done"];
   const currentIdx = stepOrder.indexOf(step);
 
@@ -204,8 +225,8 @@ export default function DocumentWriter() {
                 {isDragging ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 업로드"}
               </h3>
               <p className="text-muted-foreground text-sm mb-6">
-                TXT · DOCX · PDF · XLSX · PPTX 지원<br />
-                <span className="text-xs">(텍스트 추출이 가능한 파일 권장)</span>
+                TXT 파일 권장 (ANSI, UTF-8 모두 지원)<br />
+                <span className="text-xs text-destructive/80">DOCX, PDF 바이너리 파일은 텍스트 파싱 기능이 추가되어야 완벽히 지원됩니다.</span>
               </p>
               <Button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}>
                 파일 선택하기
@@ -238,7 +259,6 @@ export default function DocumentWriter() {
         {/* ── STEP 3: 심층 분석 결과 */}
         {step === "deepResult" && doc && (
           <div className="space-y-6">
-            {/* 문서 기본 정보 */}
             <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
@@ -253,7 +273,6 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 심층 분석 결과 */}
             <div className="bg-background border rounded-2xl p-6 space-y-6">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h4 className="font-bold text-lg">🧠 AI 심층 분석 결과</h4>
@@ -303,7 +322,6 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 원본 텍스트 */}
             <div className="bg-background border rounded-2xl p-6">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold">📄 원본 텍스트</h4>
@@ -316,12 +334,12 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 감지된 섹션 */}
             <div className="bg-background border rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <h4 className="font-semibold">🗂 감지된 섹션 ({doc.sections.length}개)</h4>
                 <Button size="sm" variant="outline" onClick={addSection}>+ 섹션 추가</Button>
               </div>
+              
               {doc.sections.map(section => (
                 <div key={section.id} className="border rounded-xl p-4 space-y-2 bg-muted/20">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -521,11 +539,28 @@ function AnalysisCard({ icon, label, value }: { icon: string; label: string; val
   );
 }
 
+// 수정된 부분: 인코딩 자동 감지 로직 추가
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = e => resolve(e.target?.result as string);
+    reader.onload = e => {
+      try {
+        const buffer = e.target?.result as ArrayBuffer;
+        const uint8Array = new Uint8Array(buffer);
+        let text = "";
+        try {
+          // 1. 먼저 UTF-8로 엄격하게 디코딩 시도
+          text = new TextDecoder("utf-8", { fatal: true }).decode(uint8Array);
+        } catch (err) {
+          // 2. 실패 시 한국어 윈도우 기본 인코딩인 EUC-KR(ANSI)로 디코딩
+          text = new TextDecoder("euc-kr").decode(uint8Array);
+        }
+        resolve(text);
+      } catch (error) {
+        reject(error);
+      }
+    };
     reader.onerror = reject;
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
   });
 }
