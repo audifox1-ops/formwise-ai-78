@@ -17,8 +17,8 @@ const IMPORTANCE_COLOR = {
 const IMPORTANCE_LABEL = { high: "중요", medium: "보통", low: "낮음" };
 
 export default function DocumentWriter() {
-  const [step, setStep] = useState<"upload" | "analyzing" | "deepResult" | "edit" | "done">("upload");
-  const [doc, setDoc]   = useState<AnalyzedDocument | null>(null);
+  const [step, setStep]         = useState<"upload"|"analyzing"|"deepResult"|"edit"|"done">("upload");
+  const [doc, setDoc]           = useState<AnalyzedDocument | null>(null);
   const [rawText, setRawText]   = useState("");
   const [fileName, setFileName] = useState("");
   const [loading, setLoading]   = useState(false);
@@ -27,26 +27,33 @@ export default function DocumentWriter() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText]   = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── 파일 처리 공통
   const processFile = async (file: File) => {
     setFileName(file.name);
     setStep("analyzing");
     setLoading(true);
+    setAnalyzeError(null);
     try {
       const text = await readFileAsText(file);
+      if (!text || text.trim().length < 10) {
+        throw new Error("텍스트를 읽을 수 없습니다. TXT 또는 DOCX 파일을 사용해주세요.");
+      }
       setRawText(text);
-      toast.info("AI가 문서를 심층 분석하고 있습니다...");
+      toast.info("AI가 문서를 심층 분석 중...");
       const result = await deepAnalyzeDocument(text, file.name);
+      if (!result?.deepAnalysis) throw new Error("분석 결과가 올바르지 않습니다.");
       setDoc(result);
       const init: Record<string, string> = {};
       result.sections.forEach(s => { init[s.id] = ""; });
       setIntents(init);
       setStep("deepResult");
       toast.success("심층 분석 완료!");
-    } catch {
-      toast.error("분석 실패. 텍스트 기반 파일(.txt, .docx)을 사용해주세요.");
+    } catch (err: any) {
+      const msg = err?.message ?? "알 수 없는 오류";
+      setAnalyzeError(msg);
+      toast.error("분석 실패: " + msg);
       setStep("upload");
     } finally {
       setLoading(false);
@@ -56,9 +63,9 @@ export default function DocumentWriter() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) processFile(file);
+    e.target.value = "";
   };
 
-  // ── 드래그앤드롭
   const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
   const onDragLeave = useCallback(() => setIsDragging(false), []);
   const onDrop      = useCallback((e: React.DragEvent) => {
@@ -67,7 +74,6 @@ export default function DocumentWriter() {
     if (file) processFile(file);
   }, []);
 
-  // ── 섹션 편집 헬퍼
   const saveEdit = (sectionId: string, field: "title" | "originalText") => {
     setDoc(prev => prev ? {
       ...prev,
@@ -88,12 +94,14 @@ export default function DocumentWriter() {
     const newId = `section_${Date.now()}`;
     setDoc(prev => prev ? {
       ...prev,
-      sections: [...prev.sections, { id: newId, title: "새 섹션", originalText: "내용을 입력하세요.", aiGenerated: false, userIntent: "", importance: "medium" }]
+      sections: [...prev.sections, {
+        id: newId, title: "새 섹션", originalText: "내용을 입력하세요.",
+        aiGenerated: false, userIntent: "", importance: "medium"
+      }]
     } : prev);
     setIntents(prev => ({ ...prev, [newId]: "" }));
   };
 
-  // ── AI 작성
   const generateOne = async (section: DocumentSection) => {
     if (!intents[section.id]?.trim()) { toast.error("작성 의도를 입력해주세요."); return; }
     setLoadingSection(section.id);
@@ -109,7 +117,7 @@ export default function DocumentWriter() {
         )
       } : prev);
       toast.success(`"${section.title}" 작성 완료!`);
-    } catch { toast.error("생성 실패."); }
+    } catch { toast.error("생성 실패. 다시 시도해주세요."); }
     finally { setLoadingSection(null); }
   };
 
@@ -120,7 +128,6 @@ export default function DocumentWriter() {
     setStep("done");
   };
 
-  // ── 내보내기
   const exportDoc = () => {
     if (!doc) return;
     const content = doc.sections.map(s => `[${s.title}]\n${s.originalText}`).join("\n\n---\n\n");
@@ -136,9 +143,9 @@ export default function DocumentWriter() {
     setStep("upload"); setDoc(null);
     setRawText(""); setFileName("");
     setIntents({}); setEditingId(null);
+    setAnalyzeError(null);
   };
 
-  // ── 진행 단계 바
   const steps = [
     { key: "upload",     label: "① 업로드" },
     { key: "deepResult", label: "② 심층 분석" },
@@ -154,10 +161,10 @@ export default function DocumentWriter() {
         <p className="text-sm font-semibold tracking-widest text-primary uppercase mb-3">AI 문서 작성</p>
         <h2 className="text-4xl font-bold mb-3">문서를 업로드하면<br />AI가 심층 분석 후 작성합니다</h2>
         <p className="text-muted-foreground mb-10">
-          단순 섹션 분리가 아닌, 목적·톤·구조를 AI가 완전히 파악한 뒤 작성을 시작합니다.
+          목적·톤·구조를 AI가 완전히 파악한 뒤 작성을 시작합니다.
         </p>
 
-        {/* 진행 단계 */}
+        {/* 진행 단계 바 */}
         <div className="flex items-center gap-2 mb-10 flex-wrap">
           {steps.map((s, i) => (
             <div key={s.key} className="flex items-center gap-2">
@@ -175,28 +182,38 @@ export default function DocumentWriter() {
 
         {/* ── STEP 1: 업로드 */}
         {step === "upload" && (
-          <div
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer transition-all ${
-              isDragging
-                ? "border-primary bg-primary/10 scale-[1.01]"
-                : "border-border hover:border-primary hover:bg-primary/5"
-            }`}
-          >
-            <div className="text-6xl mb-4">{isDragging ? "📂" : "📄"}</div>
-            <h3 className="text-xl font-semibold mb-2">
-              {isDragging ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 업로드"}
-            </h3>
-            <p className="text-muted-foreground text-sm mb-6">TXT · DOCX · PDF · XLSX · PPTX 지원</p>
-            <Button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}>
-              파일 선택하기
-            </Button>
-            <input ref={fileRef} type="file" className="hidden"
-              accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx"
-              onChange={handleFileInput} />
+          <div className="space-y-4">
+            {analyzeError && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
+                ⚠️ {analyzeError}
+              </div>
+            )}
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={() => fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer transition-all ${
+                isDragging
+                  ? "border-primary bg-primary/10 scale-[1.01]"
+                  : "border-border hover:border-primary hover:bg-primary/5"
+              }`}
+            >
+              <div className="text-6xl mb-4">{isDragging ? "📂" : "📄"}</div>
+              <h3 className="text-xl font-semibold mb-2">
+                {isDragging ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 업로드"}
+              </h3>
+              <p className="text-muted-foreground text-sm mb-6">
+                TXT · DOCX · PDF · XLSX · PPTX 지원<br />
+                <span className="text-xs">(텍스트 추출이 가능한 파일 권장)</span>
+              </p>
+              <Button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}>
+                파일 선택하기
+              </Button>
+              <input ref={fileRef} type="file" className="hidden"
+                accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx"
+                onChange={handleFileInput} />
+            </div>
           </div>
         )}
 
@@ -206,11 +223,11 @@ export default function DocumentWriter() {
             <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
             <div>
               <h3 className="text-xl font-semibold mb-2">AI가 문서를 심층 분석하고 있습니다</h3>
-              <p className="text-muted-foreground text-sm">목적 · 톤 · 구조 · 키워드 · 개선점을 파악하는 중...</p>
+              <p className="text-muted-foreground text-sm">{fileName}</p>
             </div>
-            <div className="flex justify-center gap-6 text-sm text-muted-foreground flex-wrap">
-              {["문서 구조 파악","문체·톤 분석","핵심 키워드 추출","개선 제안 생성"].map(t => (
-                <span key={t} className="flex items-center gap-1">
+            <div className="flex justify-center gap-4 text-sm text-muted-foreground flex-wrap">
+              {["문서 구조 파악", "문체·톤 분석", "핵심 키워드 추출", "개선 제안 생성"].map(t => (
+                <span key={t} className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />{t}
                 </span>
               ))}
@@ -236,52 +253,43 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 심층 분석 결과 카드 */}
+            {/* 심층 분석 결과 */}
             <div className="bg-background border rounded-2xl p-6 space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-3">
                 <h4 className="font-bold text-lg">🧠 AI 심층 분석 결과</h4>
-                {/* 품질 점수 */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-muted rounded-full px-4 py-1.5">
                   <span className="text-sm text-muted-foreground">문서 품질</span>
-                  <div className="flex items-center gap-1.5 bg-muted rounded-full px-3 py-1">
-                    <span className={`text-lg font-bold ${
-                      doc.deepAnalysis.qualityScore >= 80 ? "text-green-500" :
-                      doc.deepAnalysis.qualityScore >= 60 ? "text-yellow-500" : "text-red-500"
-                    }`}>{doc.deepAnalysis.qualityScore}</span>
-                    <span className="text-xs text-muted-foreground">/ 100</span>
-                  </div>
+                  <span className={`text-xl font-bold ${
+                    doc.deepAnalysis.qualityScore >= 80 ? "text-green-500" :
+                    doc.deepAnalysis.qualityScore >= 60 ? "text-yellow-500" : "text-red-500"
+                  }`}>{doc.deepAnalysis.qualityScore}</span>
+                  <span className="text-xs text-muted-foreground">/ 100</span>
                 </div>
               </div>
 
-              {/* 분석 그리드 */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <AnalysisCard icon="🎯" label="문서 목적" value={doc.deepAnalysis.purpose} />
-                <AnalysisCard icon="💡" label="핵심 메시지" value={doc.deepAnalysis.coreMessage} />
-                <AnalysisCard icon="👥" label="대상 독자" value={doc.deepAnalysis.targetAudience} />
-                <AnalysisCard icon="✍️" label="문체 · 톤" value={`${doc.deepAnalysis.writingStyle} / ${doc.deepAnalysis.tone}`} />
-                <AnalysisCard icon="⏱" label="예상 읽기 시간" value={doc.deepAnalysis.estimatedReadTime} />
-                <AnalysisCard icon="📊" label="품질 평가" value={doc.deepAnalysis.qualityReason} />
+                <AnalysisCard icon="🎯" label="문서 목적"      value={doc.deepAnalysis.purpose} />
+                <AnalysisCard icon="💡" label="핵심 메시지"    value={doc.deepAnalysis.coreMessage} />
+                <AnalysisCard icon="👥" label="대상 독자"      value={doc.deepAnalysis.targetAudience} />
+                <AnalysisCard icon="✍️" label="문체 · 톤"     value={`${doc.deepAnalysis.writingStyle} / ${doc.deepAnalysis.tone}`} />
+                <AnalysisCard icon="⏱"  label="예상 읽기 시간" value={doc.deepAnalysis.estimatedReadTime} />
+                <AnalysisCard icon="📊" label="품질 평가"      value={doc.deepAnalysis.qualityReason} />
               </div>
 
-              {/* 키워드 */}
               <div>
                 <p className="text-sm font-semibold mb-2">🔑 핵심 키워드</p>
                 <div className="flex flex-wrap gap-2">
                   {doc.deepAnalysis.keywords.map(k => (
-                    <span key={k} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full border border-primary/20 font-medium">
-                      {k}
-                    </span>
+                    <span key={k} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full border border-primary/20 font-medium">{k}</span>
                   ))}
                 </div>
               </div>
 
-              {/* 구조 평가 */}
               <div className="bg-muted/50 rounded-xl p-4">
                 <p className="text-sm font-semibold mb-1">📐 구조 평가</p>
                 <p className="text-sm text-muted-foreground leading-relaxed">{doc.deepAnalysis.structureEvaluation}</p>
               </div>
 
-              {/* 개선 제안 */}
               <div>
                 <p className="text-sm font-semibold mb-2">💬 AI 개선 제안</p>
                 <div className="space-y-2">
@@ -295,7 +303,7 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 원본 텍스트 확인 */}
+            {/* 원본 텍스트 */}
             <div className="bg-background border rounded-2xl p-6">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold">📄 원본 텍스트</h4>
@@ -308,7 +316,7 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 감지된 섹션 확인 */}
+            {/* 감지된 섹션 */}
             <div className="bg-background border rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <h4 className="font-semibold">🗂 감지된 섹션 ({doc.sections.length}개)</h4>
@@ -325,7 +333,7 @@ export default function DocumentWriter() {
                         <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 flex-wrap flex-1">
+                      <div className="flex items-center gap-2 flex-1 flex-wrap">
                         <span className="font-medium text-sm">{section.title}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full border ${IMPORTANCE_COLOR[section.importance]}`}>
                           {IMPORTANCE_LABEL[section.importance]}
@@ -335,7 +343,7 @@ export default function DocumentWriter() {
                       </div>
                     )}
                     <button onClick={() => deleteSection(section.id)}
-                      className="text-xs text-muted-foreground hover:text-destructive transition-colors">🗑 삭제</button>
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors">🗑</button>
                   </div>
 
                   {editingId === section.id + "_original" ? (
@@ -349,12 +357,12 @@ export default function DocumentWriter() {
                     </div>
                   ) : (
                     <div className="group relative bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-16 line-clamp-3">
+                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap line-clamp-3 pr-16">
                         {section.originalText}
                       </p>
                       <button
                         onClick={() => { setEditingId(section.id + "_original"); setEditText(section.originalText); }}
-                        className="absolute top-2 right-2 text-xs text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1">
+                        className="absolute top-2 right-2 text-xs opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1 hover:text-primary">
                         ✏️ 편집
                       </button>
                     </div>
@@ -365,7 +373,7 @@ export default function DocumentWriter() {
 
             <div className="flex justify-end">
               <Button size="lg" onClick={() => setStep("edit")}>
-                분석 확인 완료 · AI 작성 시작 →
+                확인 완료 · AI 작성 시작 →
               </Button>
             </div>
           </div>
@@ -379,9 +387,7 @@ export default function DocumentWriter() {
                 <div>
                   <span className="text-xs font-semibold text-primary uppercase tracking-widest">{doc.documentType}</span>
                   <h3 className="text-2xl font-bold mt-1">{doc.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    각 섹션에 작성 의도를 입력 후 AI 작성을 시작하세요.
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">각 섹션에 작성 의도를 입력 후 AI 작성을 시작하세요.</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={() => setStep("deepResult")}>← 분석 결과</Button>
@@ -429,12 +435,12 @@ export default function DocumentWriter() {
                 <div className="flex gap-2">
                   <input type="text"
                     className="flex-1 border rounded-lg px-3 py-2 text-sm bg-muted/50 outline-none focus:border-primary"
-                    placeholder="예) 3분기 매출 15% 증가, 신규 고객 확보 중심으로"
+                    placeholder="예) 3분기 매출 15% 증가, 신규 고객 확보 전략 중심으로"
                     value={intents[section.id] || ""}
                     onChange={e => setIntents(p => ({ ...p, [section.id]: e.target.value }))} />
                   <Button size="sm" onClick={() => generateOne(section)} disabled={loadingSection === section.id}>
                     {loadingSection === section.id
-                      ? <span className="flex items-center gap-1"><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> 작성 중</span>
+                      ? <span className="flex items-center gap-1"><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />작성 중</span>
                       : section.aiGenerated ? "재작성" : "AI 작성"}
                   </Button>
                 </div>
@@ -455,7 +461,7 @@ export default function DocumentWriter() {
                 <div>
                   <div className="text-3xl mb-2">🎉</div>
                   <h3 className="text-2xl font-bold mb-1">문서 작성 완료!</h3>
-                  <p className="text-muted-foreground text-sm">최종 내용을 확인하고 필요하면 편집 후 다운로드하세요.</p>
+                  <p className="text-muted-foreground text-sm">최종 내용을 확인하고 편집 후 다운로드하세요.</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={() => setStep("edit")}>← 다시 편집</Button>
@@ -506,7 +512,6 @@ export default function DocumentWriter() {
   );
 }
 
-// ── 분석 카드 컴포넌트
 function AnalysisCard({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="bg-muted/50 rounded-xl p-4">
