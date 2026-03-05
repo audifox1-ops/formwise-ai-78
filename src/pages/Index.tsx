@@ -5,6 +5,7 @@ import ProblemSolutionSection from "@/components/features/ProblemSolutionSection
 import CoreFeatureSection from "@/components/features/CoreFeatureSection";
 import TrustSection from "@/components/features/TrustSection";
 import AiFormBuilder from "@/components/features/AiFormBuilder";
+import DocumentWriter from "@/components/features/DocumentWriter";
 
 const Index = () => {
   return (
@@ -15,6 +16,7 @@ const Index = () => {
         <ProblemSolutionSection />
         <CoreFeatureSection />
         <AiFormBuilder />
+        <DocumentWriter />
         <TrustSection />
       </main>
       <Footer />
