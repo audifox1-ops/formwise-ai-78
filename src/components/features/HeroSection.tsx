@@ -1,11 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, FileText, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import heroBg from "@/assets/images/hero-bg.jpg";
 
 const HeroSection = () => {
+  const navigate = useNavigate();
+
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden pt-16">
-      {/* Background image with overlay */}
       <div className="absolute inset-0">
         <img src={heroBg} alt="스마트 오피스 환경" className="w-full h-full object-cover" />
         <div className="absolute inset-0 gradient-navy opacity-85" />
@@ -33,11 +35,11 @@ const HeroSection = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
-            <Button variant="teal" size="lg" className="text-base px-8 py-6">
+            <Button variant="teal" size="lg" className="text-base px-8 py-6" onClick={() => navigate("/demo")}>
               무료로 시작하기
               <ArrowRight size={18} />
             </Button>
-            <Button variant="hero-outline" size="lg" className="text-base px-8 py-6">
+            <Button variant="hero-outline" size="lg" className="text-base px-8 py-6" onClick={() => navigate("/demo")}>
               <FileText size={18} />
               데모 체험하기
             </Button>
