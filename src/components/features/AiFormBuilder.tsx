@@ -9,7 +9,6 @@ export default function AiFormBuilder() {
   const [form, setForm] = useState<GeneratedForm | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // ── 탭 상태 추가 ("input": 정보입력, "preview": 결과미리보기) ──
   const [activeTab, setActiveTab] = useState<"input" | "preview">("input");
 
   const [formData, setFormData] = useState<Record<string, string>>({});
@@ -38,8 +37,6 @@ export default function AiFormBuilder() {
     if (savedData) setFormData(JSON.parse(savedData));
     if (savedTemplate) {
       setForm(JSON.parse(savedTemplate));
-      // 저장된 폼이 있으면 자동으로 미리보기 탭으로 이동할지 여부 결정
-      // setActiveTab("preview"); 
     }
     if (savedFormType) setFormType(savedFormType);
   }, []);
@@ -60,7 +57,7 @@ export default function AiFormBuilder() {
 
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!formType.trim()) { toast.error("양식명을 입력해주세요."); return; }
+    if (!formType.trim()) { toast.error("양식 이름을 입력해주세요."); return; }
     
     setLoading(true);
     try {
@@ -118,7 +115,7 @@ export default function AiFormBuilder() {
           localStorage.setItem("documentFormData", JSON.stringify(json.data));
         }
         toast.success("데이터를 성공적으로 불러왔습니다.");
-        setActiveTab("preview"); // 파일 업로드 시 미리보기로 이동
+        setActiveTab("preview"); 
       } catch {
         toast.error("잘못된 파일 형식입니다.");
       }
@@ -128,7 +125,7 @@ export default function AiFormBuilder() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans p-4 sm:p-8 print:p-0 print:bg-white">
+    <div className="min-h-screen bg-[#f8fafc] font-sans p-4 sm:p-8 print:p-0 print:bg-white">
       <style dangerouslySetInnerHTML={{ __html: `
         :root {
           --accent-color: ${theme.color};
@@ -157,8 +154,8 @@ export default function AiFormBuilder() {
         
         .material-section {
           background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          border-radius: 16px;
+          box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
           margin-bottom: 24px;
           padding: 32px;
         }
@@ -202,6 +199,7 @@ export default function AiFormBuilder() {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             break-inside: avoid;
+            padding: 24px !important;
           }
           .section-heading {
             border-bottom: 1px solid #d1d5db !important;
@@ -221,139 +219,182 @@ export default function AiFormBuilder() {
 
       <div className="max-w-4xl mx-auto">
         
-        {/* ── 탭 내비게이션 (인쇄 시 숨김) ── */}
-        <div className="flex space-x-1 border-b border-gray-200 mb-8 no-print">
+        {/* ── 상단 탭 내비게이션 ── */}
+        <div className="flex space-x-2 border-b border-gray-200 mb-8 no-print">
           <button
             onClick={() => setActiveTab("input")}
-            className={`flex-1 py-3 px-4 text-center text-sm font-bold transition-all ${
+            className={`py-3 px-6 text-sm font-bold transition-all border-b-2 ${
               activeTab === "input"
-                ? "border-b-2 text-[var(--accent-color)]"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg"
+                ? "border-[var(--accent-color)] text-[var(--accent-color)]"
+                : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100/50 rounded-t-xl"
             }`}
-            style={activeTab === "input" ? { borderColor: "var(--accent-color)" } : {}}
           >
             📝 양식 설정
           </button>
           <button
             onClick={() => setActiveTab("preview")}
-            className={`flex-1 py-3 px-4 text-center text-sm font-bold transition-all ${
+            className={`py-3 px-6 text-sm font-bold transition-all border-b-2 ${
               activeTab === "preview"
-                ? "border-b-2 text-[var(--accent-color)]"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg"
+                ? "border-[var(--accent-color)] text-[var(--accent-color)]"
+                : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100/50 rounded-t-xl"
             }`}
-            style={activeTab === "preview" ? { borderColor: "var(--accent-color)" } : {}}
           >
             📄 생성된 양식 (미리보기/출력)
           </button>
         </div>
 
-        {/* ── 탭 1: 양식 설정 패널 ── */}
+        {/* ── 탭 1: 양식 설정 ── */}
         {activeTab === "input" && (
-          <div className="w-full space-y-6 no-print animate-in fade-in duration-300">
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-              <h1 className="text-2xl font-bold text-gray-800 mb-2">
-                {formType || "[양식명]"} 작성 도우미
-              </h1>
-              <p className="text-sm text-gray-500 mb-8 pb-6 border-b">
-                정보를 입력하면 업무에 최적화된 양식이 자동 생성됩니다.
-              </p>
+          <div className="w-full no-print animate-in fade-in duration-300">
+            <div className="bg-white p-8 sm:p-14 rounded-3xl shadow-sm border border-gray-100">
+              
+              <div className="text-center mb-10">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 mb-3 tracking-tight">어떤 양식이 필요하신가요?</h1>
+                <p className="text-gray-500 text-sm sm:text-base">AI가 한국 비즈니스 환경에 맞는 전문적인 문서를 즉시 만들어드립니다.</p>
+              </div>
 
-              <form onSubmit={handleGenerate} className="space-y-8">
+              <form onSubmit={handleGenerate} className="max-w-2xl mx-auto space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <span className="text-[var(--accent-color)]">■</span> 기본 정보
-                  </h3>
-                  <div className="bg-gray-50 p-5 rounded-xl border border-gray-100">
-                    <label className="text-sm font-semibold text-gray-700 block mb-2">[양식명] 제목*</label>
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--accent-color)] outline-none"
-                      placeholder="예: 신규 프로젝트 기안서, 연차 휴가 신청서"
-                      value={formType}
-                      onChange={e => setFormType(e.target.value)}
-                    />
+                  <label className="text-sm font-bold text-gray-700 block mb-2 ml-1">
+                    양식 이름 <span className="text-red-500">*</span>
+                  </label>
+                  
+                  {/* ✨ 추가된 기능: 대중적인 양식 드롭다운 선택기 */}
+                  <div className="relative mb-3">
+                    <select
+                      className="w-full appearance-none bg-white border border-gray-200 rounded-xl p-3.5 pr-10 text-sm text-gray-700 focus:border-[var(--accent-color)] focus:ring-2 focus:ring-[var(--accent-color-light)] outline-none transition-all cursor-pointer shadow-sm font-medium hover:bg-gray-50"
+                      onChange={(e) => {
+                        if (e.target.value) setFormType(e.target.value);
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="" disabled hidden>💡 아이디어가 필요하다면? 자주 쓰는 양식 빠른 선택...</option>
+                      <optgroup label="보고 / 기안">
+                        <option value="주간 업무 보고서">주간 업무 보고서</option>
+                        <option value="월간 실적 보고서">월간 실적 보고서</option>
+                        <option value="신규 프로젝트 기안서">신규 프로젝트 기안서</option>
+                        <option value="품의서 (지출 결의서)">품의서 (지출 결의서)</option>
+                      </optgroup>
+                      <optgroup label="인사 / 총무">
+                        <option value="연차/반차 휴가 신청서">연차/반차 휴가 신청서</option>
+                        <option value="출장 신청 및 복명서">출장 신청 및 복명서</option>
+                        <option value="업무 인수인계서">업무 인수인계서</option>
+                        <option value="근로 계약서">근로 계약서</option>
+                        <option value="사직서">사직서</option>
+                      </optgroup>
+                      <optgroup label="영업 / 마케팅">
+                        <option value="제품/서비스 제안서">제품/서비스 제안서</option>
+                        <option value="보도자료">보도자료</option>
+                        <option value="고객 만족도 설문지">고객 만족도 설문지</option>
+                        <option value="회의록 (의사록)">회의록 (의사록)</option>
+                      </optgroup>
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-xs">
+                      ▼
+                    </div>
                   </div>
+
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 text-base focus:bg-white focus:border-[var(--accent-color)] focus:ring-4 focus:ring-[var(--accent-color-light)] outline-none transition-all"
+                    placeholder="위에서 선택하거나 직접 입력하세요 (예: 재택근무 신청서)"
+                    value={formType}
+                    onChange={e => setFormType(e.target.value)}
+                  />
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <span className="text-[var(--accent-color)]">■</span> 주요 내용 / 요구사항
-                  </h3>
-                  <div className="bg-gray-50 p-5 rounded-xl border border-gray-100">
-                    <textarea 
-                      className="w-full border border-gray-300 rounded-lg p-3 text-sm min-h-[120px] focus:ring-2 focus:ring-[var(--accent-color)] outline-none"
-                      placeholder="양식에 반드시 포함되어야 할 항목이나 요청사항을 적어주세요."
-                      value={prompt}
-                      onChange={e => setPrompt(e.target.value)}
-                    />
-                  </div>
+                  <label className="text-sm font-bold text-gray-700 block mb-2 ml-1">
+                    필수 포함 내용 <span className="text-gray-400 font-normal">(선택)</span>
+                  </label>
+                  <textarea 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 text-base min-h-[140px] focus:bg-white focus:border-[var(--accent-color)] focus:ring-4 focus:ring-[var(--accent-color-light)] outline-none transition-all resize-y"
+                    placeholder="양식에 반드시 들어가야 할 항목이나 특별한 요청사항을 편하게 적어주세요."
+                    value={prompt}
+                    onChange={e => setPrompt(e.target.value)}
+                  />
                 </div>
 
-                <div className="pt-4 border-t flex flex-col sm:flex-row gap-3">
-                  <Button type="submit" className="flex-1 h-12 text-md font-bold bg-[var(--accent-color)] hover:bg-opacity-90" disabled={loading}>
-                    {loading ? "양식 생성 중..." : `${formType || '[양식명]'} 생성하기`}
-                  </Button>
+                <Button 
+                  type="submit" 
+                  className="w-full h-14 text-lg font-bold bg-[var(--accent-color)] hover:bg-opacity-90 rounded-2xl shadow-md hover:shadow-lg transition-all mt-2" 
+                  disabled={loading}
+                >
+                  {loading ? "양식 생성 중..." : "✨ AI 양식 생성하기"}
+                </Button>
+                
+                {/* 부가 기능 (파일 불러오기/저장/초기화) */}
+                <div className="flex flex-col items-center justify-center pt-8">
+                  <input type="file" ref={fileInputRef} accept=".json" className="hidden" onChange={uploadDataFile} />
+                  
+                  {!form ? (
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="text-sm text-gray-400 hover:text-gray-600 underline underline-offset-4 transition-colors">
+                      기존 데이터 파일(.json) 불러오기
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap gap-4 sm:gap-6 border-t border-gray-100 pt-6 w-full justify-center">
+                      <button type="button" onClick={downloadDataFile} className="text-sm font-medium text-gray-500 hover:text-[var(--accent-color)] flex items-center gap-1 transition-colors">
+                        💾 파일로 저장
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} className="text-sm font-medium text-gray-500 hover:text-[var(--accent-color)] flex items-center gap-1 transition-colors">
+                        📂 불러오기
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button type="button" onClick={clearForm} className="text-sm font-medium text-gray-400 hover:text-red-500 flex items-center gap-1 transition-colors">
+                        🗑️ 양식 초기화
+                      </button>
+                    </div>
+                  )}
                 </div>
               </form>
-            </div>
 
-            {/* 데이터 관리 컨트롤 */}
-            {form && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Button type="button" variant="outline" onClick={downloadDataFile} className="w-full text-sm h-11">
-                  💾 파일로 저장
-                </Button>
-                <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full text-sm h-11">
-                  📂 불러오기
-                </Button>
-                <Button type="button" variant="destructive" onClick={clearForm} className="w-full text-sm h-11">
-                  🗑️ 데이터 초기화
-                </Button>
-                <input type="file" ref={fileInputRef} accept=".json" className="hidden" onChange={uploadDataFile} />
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* ── 탭 2: 미리보기 및 생성 패널 (인쇄 대상) ── */}
+        {/* ── 탭 2: 생성된 양식 미리보기 / 출력 ── */}
         <div className={`${activeTab === "preview" ? "block animate-in fade-in duration-300" : "hidden print:block"} document-output w-full`}>
           {!form ? (
-            <div className="h-[400px] flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 rounded-2xl bg-white/50 no-print">
-              <span className="text-5xl mb-4 text-[var(--accent-color)] opacity-40">📄</span>
-              <p className="text-lg font-medium text-gray-600 mb-2">생성된 양식이 없습니다.</p>
-              <p className="text-sm text-gray-500">"양식 설정" 탭에서 정보를 입력하고 생성해주세요.</p>
-              <Button onClick={() => setActiveTab("input")} variant="outline" className="mt-6">설정 탭으로 이동</Button>
+            <div className="h-[500px] flex flex-col items-center justify-center text-center border-2 border-dashed border-gray-200 rounded-3xl bg-white/50 no-print">
+              <span className="text-6xl mb-6 opacity-20">📄</span>
+              <h3 className="text-xl font-bold text-gray-700 mb-2">아직 생성된 양식이 없습니다</h3>
+              <p className="text-gray-500 mb-6">'양식 설정' 탭에서 원하는 양식을 만들어보세요.</p>
+              <Button onClick={() => setActiveTab("input")} variant="outline" className="rounded-xl px-8 h-12">
+                양식 만들러 가기
+              </Button>
             </div>
           ) : (
             <div className="bg-transparent print:bg-white">
-              <div className="flex items-center justify-between mb-6 no-print bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                <h2 className="text-xl font-bold text-gray-800 flex items-center">
+              
+              <div className="flex items-center justify-between mb-6 no-print bg-white p-4 px-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800 flex items-center">
                   <span className="text-[var(--accent-color)] mr-2">📄</span>
                   {formType || "[양식명]"} 미리보기
                 </h2>
                 <button 
                   onClick={() => window.print()} 
-                  className="bg-green-600 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 transition duration-300 flex items-center font-medium shadow-sm"
+                  className="bg-[#1f2937] text-white px-5 py-2.5 rounded-xl hover:bg-black transition duration-300 flex items-center font-medium shadow-sm text-sm"
                 >
                   <span className="mr-2">🖨️</span> PDF 저장 / 인쇄
                 </button>
               </div>
 
-              {/* ── 실제 인쇄 영역 ── */}
-              <div className="bg-gray-50 print:bg-white pb-8">
-                <div className="gradient-header-bg text-white p-10 sm:p-14 rounded-t-xl print:rounded-none mb-8 shadow-md print:shadow-none">
+              {/* 실제 인쇄 영역 */}
+              <div className="bg-[#fcfcfc] print:bg-white pb-8 rounded-b-2xl">
+                <div className="gradient-header-bg text-white p-10 sm:p-14 rounded-t-2xl print:rounded-none mb-8 shadow-sm print:shadow-none">
                   <h1 className="text-3xl sm:text-4xl font-extrabold mb-4 relative z-10 break-keep leading-tight">
                     {form.title}
                   </h1>
-                  <div className="flex gap-4 text-sm opacity-90 relative z-10 font-mono bg-black/20 w-fit px-3 py-1.5 rounded">
+                  <div className="flex gap-4 text-sm opacity-90 relative z-10 font-mono bg-black/20 w-fit px-3 py-1.5 rounded-lg">
                     <span>버전: {form.version}</span>
                     <span>|</span>
                     <span>작성일: {form.date}</span>
                   </div>
                 </div>
 
-                <div className="px-0 sm:px-2">
+                <div className="px-0 sm:px-4">
                   {form.sections.map((section, sIdx) => (
                     <div key={sIdx} className="material-section">
                       <h2 className="section-heading text-xl sm:text-2xl">
@@ -361,7 +402,7 @@ export default function AiFormBuilder() {
                       </h2>
                       
                       {section.description && (
-                        <p className="text-sm text-gray-600 mb-6 accent-border leading-relaxed bg-gray-50 p-3 rounded-r-lg">
+                        <p className="text-sm text-gray-600 mb-6 accent-border leading-relaxed bg-gray-50 p-4 rounded-r-xl">
                           {section.description}
                         </p>
                       )}
@@ -377,7 +418,7 @@ export default function AiFormBuilder() {
                             {["text", "email", "date"].includes(field.type) && (
                               <input
                                 type={field.type}
-                                className="w-full border-b border-gray-300 py-2.5 bg-transparent focus:border-[var(--accent-color)] outline-none transition-colors text-gray-900 placeholder:text-gray-400 text-[15px]"
+                                className="w-full border-b border-gray-300 py-2.5 bg-transparent focus:border-[var(--accent-color)] outline-none transition-colors text-gray-900 placeholder:text-gray-300 text-[15px]"
                                 placeholder={`(Tab 입력) ${field.placeholder}`}
                                 value={formData[field.id] || ""}
                                 onChange={e => handleInputChange(field.id, e.target.value)}
@@ -387,7 +428,7 @@ export default function AiFormBuilder() {
 
                             {field.type === "textarea" && (
                               <textarea
-                                className="w-full border rounded-lg p-3.5 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[var(--accent-color)] outline-none transition-all text-gray-900 placeholder:text-gray-400 min-h-[120px] text-[15px] leading-relaxed"
+                                className="w-full border rounded-xl p-4 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-[var(--accent-color-light)] focus:border-[var(--accent-color)] outline-none transition-all text-gray-900 placeholder:text-gray-300 min-h-[120px] text-[15px] leading-relaxed"
                                 placeholder={`(Tab 입력) ${field.placeholder}`}
                                 value={formData[field.id] || ""}
                                 onChange={e => handleInputChange(field.id, e.target.value)}
@@ -407,7 +448,7 @@ export default function AiFormBuilder() {
                             )}
 
                             {field.type === "radio" && (
-                              <div className="flex flex-wrap gap-5 pt-2">
+                              <div className="flex flex-wrap gap-6 pt-2">
                                 {field.options?.map(o => (
                                   <label key={o} className="flex items-center gap-2 text-[15px] cursor-pointer text-gray-800">
                                     <input
@@ -425,7 +466,7 @@ export default function AiFormBuilder() {
                             )}
 
                             {field.type === "checkbox" && (
-                              <div className="flex flex-wrap gap-5 pt-2">
+                              <div className="flex flex-wrap gap-6 pt-2">
                                 {field.options?.map(o => {
                                   const currentValues = formData[field.id] ? formData[field.id].split(',') : [];
                                   return (
