@@ -46,11 +46,31 @@ export interface AnalyzedDocument {
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
 
+function sanitizeJson(raw: string): string {
+  // 코드블록 제거
+  let clean = raw.replace(/```json|```/gi, "").trim();
+  // JSON 문자열 값 안의 제어문자 제거
+  clean = clean.replace(/[\u0000-\u001F\u007F]/g, (char) => {
+    if (char === "\n") return "\\n";
+    if (char === "\r") return "\\r";
+    if (char === "\t") return "\\t";
+    return "";
+  });
+  return clean;
+}
+
 export async function deepAnalyzeDocument(
   fileContent: string,
   fileName: string
 ): Promise<AnalyzedDocument> {
   const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+  // 파일 내용의 특수문자 사전 정리
+  const safeContent = fileContent
+    .slice(0, 4000)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
 
   const response = await fetch(GEMINI_URL(API_KEY), {
     method: "POST",
@@ -58,53 +78,35 @@ export async function deepAnalyzeDocument(
     body: JSON.stringify({
       contents: [{
         parts: [{
-          text: `너는 전문 문서 분석 AI야. 아래 문서를 심층적으로 분석해서 JSON으로만 반환해. 절대로 JSON 외 텍스트, 마크다운 코드블록, 설명 포함 금지.
+          text: `너는 전문 문서 분석 AI야. 아래 문서를 심층 분석해서 반드시 유효한 JSON만 반환해. 규칙: 1)JSON 외 텍스트 금지 2)코드블록 금지 3)문자열 값 안에 줄바꿈 금지(공백으로 대체) 4)큰따옴표 안에 큰따옴표 금지.
 
 파일명: ${fileName}
-문서 내용:
-"""
-${fileContent.slice(0, 6000)}
-"""
+문서내용: ${safeContent}
 
-반드시 아래 JSON 형식 그대로만 반환:
-{
-  "title": "문서 제목",
-  "documentType": "보고서",
-  "summary": "문서 전체 요약 3문장 이내",
-  "deepAnalysis": {
-    "purpose": "이 문서의 목적 1~2문장",
-    "coreMessage": "핵심 메시지 1문장",
-    "targetAudience": "예상 독자",
-    "writingStyle": "문체 설명",
-    "tone": "전반적인 톤",
-    "qualityScore": 85,
-    "qualityReason": "품질 점수 이유 1~2문장",
-    "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"],
-    "suggestions": ["개선 제안 1", "개선 제안 2", "개선 제안 3"],
-    "structureEvaluation": "문서 구조 평가 2~3문장",
-    "estimatedReadTime": "약 3분"
-  },
-  "sections": [
-    {
-      "id": "section_1",
-      "title": "섹션 제목",
-      "originalText": "해당 섹션 원본 텍스트",
-      "aiGenerated": false,
-      "userIntent": "",
-      "importance": "high"
-    }
-  ]
-}`
+반환형식:
+{"title":"문서제목","documentType":"보고서","summary":"요약 한두문장","deepAnalysis":{"purpose":"목적 한문장","coreMessage":"핵심메시지 한문장","targetAudience":"대상독자","writingStyle":"문체","tone":"톤","qualityScore":80,"qualityReason":"품질이유 한문장","keywords":["키워드1","키워드2","키워드3","키워드4","키워드5"],"suggestions":["제안1","제안2","제안3"],"structureEvaluation":"구조평가 한두문장","estimatedReadTime":"약 3분"},"sections":[{"id":"section_1","title":"섹션제목","originalText":"섹션내용 한두문장","aiGenerated":false,"userIntent":"","importance":"high"}]}`
         }]
       }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4000 }
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 3000,
+        responseMimeType: "application/json"
+      }
     })
   });
 
   const data = await response.json();
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const clean = raw.replace(/```json|```/gi, "").trim();
-  return JSON.parse(clean) as AnalyzedDocument;
+  const clean = sanitizeJson(raw);
+
+  try {
+    return JSON.parse(clean) as AnalyzedDocument;
+  } catch {
+    // 파싱 실패시 JSON 부분만 추출 재시도
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]) as AnalyzedDocument;
+    throw new Error("JSON 파싱 실패: " + clean.slice(0, 100));
+  }
 }
 
 export async function generateSectionText(
