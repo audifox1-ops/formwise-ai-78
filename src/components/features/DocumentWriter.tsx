@@ -1,218 +1,174 @@
-import { useState, useRef } from "react";
-import { analyzeDocument, generateSectionText, AnalyzedDocument, DocumentSection } from "@/lib/documentAi";
+import { useState, useRef, useCallback } from "react";
+import {
+  deepAnalyzeDocument,
+  generateSectionText,
+  AnalyzedDocument,
+  DocumentSection,
+  DeepAnalysis,
+} from "@/lib/documentAi";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+const IMPORTANCE_COLOR = {
+  high:   "bg-red-500/10 text-red-500 border-red-500/20",
+  medium: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+  low:    "bg-muted text-muted-foreground border-border",
+};
+const IMPORTANCE_LABEL = { high: "중요", medium: "보통", low: "낮음" };
+
 export default function DocumentWriter() {
-  const [step, setStep] = useState<"upload" | "analyze" | "verify" | "edit" | "done">("upload");
-  const [document, setDocument] = useState<AnalyzedDocument | null>(null);
-  const [rawText, setRawText] = useState("");
+  const [step, setStep] = useState<"upload" | "analyzing" | "deepResult" | "edit" | "done">("upload");
+  const [doc, setDoc]   = useState<AnalyzedDocument | null>(null);
+  const [rawText, setRawText]   = useState("");
   const [fileName, setFileName] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
   const [loadingSection, setLoadingSection] = useState<string | null>(null);
-  const [intents, setIntents] = useState<Record<string, string>>({});
+  const [intents, setIntents]   = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState("");
+  const [editText, setEditText]   = useState("");
+  const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── 파일 업로드 & 분석
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── 파일 처리 공통
+  const processFile = async (file: File) => {
     setFileName(file.name);
-    setStep("analyze");
+    setStep("analyzing");
     setLoading(true);
-    toast.info("문서를 분석하고 있습니다...");
     try {
       const text = await readFileAsText(file);
       setRawText(text);
-      const result = await analyzeDocument(text, file.name);
-      setDocument(result);
-      const initialIntents: Record<string, string> = {};
-      result.sections.forEach(s => { initialIntents[s.id] = ""; });
-      setIntents(initialIntents);
-      setStep("verify"); // 분석 후 검증 단계로
-      toast.success("분석 완료! 내용을 확인해주세요.");
+      toast.info("AI가 문서를 심층 분석하고 있습니다...");
+      const result = await deepAnalyzeDocument(text, file.name);
+      setDoc(result);
+      const init: Record<string, string> = {};
+      result.sections.forEach(s => { init[s.id] = ""; });
+      setIntents(init);
+      setStep("deepResult");
+      toast.success("심층 분석 완료!");
     } catch {
-      toast.error("분석 실패. 텍스트 기반 파일을 사용해주세요.");
+      toast.error("분석 실패. 텍스트 기반 파일(.txt, .docx)을 사용해주세요.");
       setStep("upload");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── 섹션 원본 텍스트 직접 수정
-  const handleEditOriginal = (section: DocumentSection) => {
-    setEditingId(section.id + "_original");
-    setEditText(section.originalText);
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
   };
 
-  const handleSaveOriginal = (sectionId: string) => {
-    setDocument(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        sections: prev.sections.map(s =>
-          s.id === sectionId ? { ...s, originalText: editText } : s
-        )
-      };
-    });
+  // ── 드래그앤드롭
+  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
+  const onDragLeave = useCallback(() => setIsDragging(false), []);
+  const onDrop      = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  }, []);
+
+  // ── 섹션 편집 헬퍼
+  const saveEdit = (sectionId: string, field: "title" | "originalText") => {
+    setDoc(prev => prev ? {
+      ...prev,
+      sections: prev.sections.map(s =>
+        s.id === sectionId ? { ...s, [field]: editText } : s
+      )
+    } : prev);
     setEditingId(null);
-    toast.success("수정이 저장되었습니다.");
+    toast.success("저장되었습니다.");
   };
 
-  // ── 섹션 제목 수정
-  const handleEditTitle = (section: DocumentSection) => {
-    setEditingId(section.id + "_title");
-    setEditText(section.title);
-  };
-
-  const handleSaveTitle = (sectionId: string) => {
-    setDocument(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        sections: prev.sections.map(s =>
-          s.id === sectionId ? { ...s, title: editText } : s
-        )
-      };
-    });
-    setEditingId(null);
-    toast.success("제목이 수정되었습니다.");
-  };
-
-  // ── 섹션 삭제
-  const handleDeleteSection = (sectionId: string) => {
-    setDocument(prev => {
-      if (!prev) return prev;
-      return { ...prev, sections: prev.sections.filter(s => s.id !== sectionId) };
-    });
+  const deleteSection = (id: string) => {
+    setDoc(prev => prev ? { ...prev, sections: prev.sections.filter(s => s.id !== id) } : prev);
     toast.success("섹션이 삭제되었습니다.");
   };
 
-  // ── 섹션 추가
-  const handleAddSection = () => {
-    if (!document) return;
+  const addSection = () => {
     const newId = `section_${Date.now()}`;
-    setDocument(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        sections: [...prev.sections, {
-          id: newId,
-          title: "새 섹션",
-          originalText: "내용을 입력하세요.",
-          aiGenerated: false,
-          userIntent: ""
-        }]
-      };
-    });
+    setDoc(prev => prev ? {
+      ...prev,
+      sections: [...prev.sections, { id: newId, title: "새 섹션", originalText: "내용을 입력하세요.", aiGenerated: false, userIntent: "", importance: "medium" }]
+    } : prev);
     setIntents(prev => ({ ...prev, [newId]: "" }));
-    toast.success("섹션이 추가되었습니다.");
   };
 
-  // ── AI 단일 섹션 작성
-  const handleGenerateSection = async (section: DocumentSection) => {
-    const intent = intents[section.id];
-    if (!intent.trim()) {
-      toast.error("작성 의도를 먼저 입력해주세요.");
-      return;
-    }
+  // ── AI 작성
+  const generateOne = async (section: DocumentSection) => {
+    if (!intents[section.id]?.trim()) { toast.error("작성 의도를 입력해주세요."); return; }
     setLoadingSection(section.id);
     try {
-      const generated = await generateSectionText(
-        section.title,
-        section.originalText,
-        intent,
-        document!.documentType
+      const text = await generateSectionText(
+        section.title, section.originalText,
+        intents[section.id], doc!.documentType, doc!.deepAnalysis
       );
-      setDocument(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          sections: prev.sections.map(s =>
-            s.id === section.id
-              ? { ...s, originalText: generated, aiGenerated: true }
-              : s
-          )
-        };
-      });
+      setDoc(prev => prev ? {
+        ...prev,
+        sections: prev.sections.map(s =>
+          s.id === section.id ? { ...s, originalText: text, aiGenerated: true } : s
+        )
+      } : prev);
       toast.success(`"${section.title}" 작성 완료!`);
-    } catch {
-      toast.error("생성 실패. 다시 시도해주세요.");
-    } finally {
-      setLoadingSection(null);
-    }
+    } catch { toast.error("생성 실패."); }
+    finally { setLoadingSection(null); }
   };
 
-  // ── 전체 AI 작성
-  const handleGenerateAll = async () => {
-    if (!document) return;
-    const targets = document.sections.filter(s => intents[s.id]?.trim());
-    if (targets.length === 0) {
-      toast.error("최소 하나의 섹션에 작성 의도를 입력해주세요.");
-      return;
-    }
-    for (const section of targets) {
-      await handleGenerateSection(section);
-    }
+  const generateAll = async () => {
+    const targets = doc?.sections.filter(s => intents[s.id]?.trim()) ?? [];
+    if (!targets.length) { toast.error("의도를 입력한 섹션이 없습니다."); return; }
+    for (const s of targets) await generateOne(s);
     setStep("done");
   };
 
   // ── 내보내기
-  const handleExport = () => {
-    if (!document) return;
-    const content = document.sections
-      .map(s => `[${s.title}]\n${s.originalText}`)
-      .join("\n\n---\n\n");
+  const exportDoc = () => {
+    if (!doc) return;
+    const content = doc.sections.map(s => `[${s.title}]\n${s.originalText}`).join("\n\n---\n\n");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
     const a = window.document.createElement("a");
-    a.href = url;
-    a.download = `${document.title}_AI작성완료.txt`;
+    a.href = URL.createObjectURL(blob);
+    a.download = `${doc.title}_AI작성완료.txt`;
     a.click();
-    URL.revokeObjectURL(url);
-    toast.success("문서가 다운로드되었습니다!");
+    toast.success("다운로드 완료!");
   };
 
   const reset = () => {
-    setStep("upload");
-    setDocument(null);
-    setRawText("");
-    setFileName("");
-    setIntents({});
-    setEditingId(null);
+    setStep("upload"); setDoc(null);
+    setRawText(""); setFileName("");
+    setIntents({}); setEditingId(null);
   };
+
+  // ── 진행 단계 바
+  const steps = [
+    { key: "upload",     label: "① 업로드" },
+    { key: "deepResult", label: "② 심층 분석" },
+    { key: "edit",       label: "③ AI 작성" },
+    { key: "done",       label: "④ 완료" },
+  ];
+  const stepOrder = ["upload","analyzing","deepResult","edit","done"];
+  const currentIdx = stepOrder.indexOf(step);
 
   return (
     <section className="py-24 px-6 bg-muted/20">
       <div className="max-w-4xl mx-auto">
         <p className="text-sm font-semibold tracking-widest text-primary uppercase mb-3">AI 문서 작성</p>
-        <h2 className="text-4xl font-bold mb-3">문서 양식을 업로드하면<br />AI가 대신 작성해드립니다</h2>
+        <h2 className="text-4xl font-bold mb-3">문서를 업로드하면<br />AI가 심층 분석 후 작성합니다</h2>
         <p className="text-muted-foreground mb-10">
-          보고서, 제안서, 공문서 등 어떤 양식이든 업로드하면<br />
-          AI가 구조를 분석하고 내용을 자동으로 작성합니다.
+          단순 섹션 분리가 아닌, 목적·톤·구조를 AI가 완전히 파악한 뒤 작성을 시작합니다.
         </p>
 
-        {/* 진행 단계 표시 */}
+        {/* 진행 단계 */}
         <div className="flex items-center gap-2 mb-10 flex-wrap">
-          {[
-            { key: "upload", label: "① 업로드" },
-            { key: "verify", label: "② 내용 확인" },
-            { key: "edit",   label: "③ AI 작성" },
-            { key: "done",   label: "④ 완료" },
-          ].map((s, i, arr) => (
+          {steps.map((s, i) => (
             <div key={s.key} className="flex items-center gap-2">
               <span className={`text-sm font-medium px-3 py-1 rounded-full transition-colors ${
-                step === s.key
+                step === s.key || (step === "analyzing" && s.key === "upload")
                   ? "bg-primary text-primary-foreground"
-                  : ["verify","edit","done"].includes(step) && i < arr.findIndex(x => x.key === step)
+                  : currentIdx > stepOrder.indexOf(s.key)
                     ? "bg-primary/20 text-primary"
                     : "bg-muted text-muted-foreground"
-              }`}>
-                {s.label}
-              </span>
-              {i < arr.length - 1 && <span className="text-muted-foreground text-sm">→</span>}
+              }`}>{s.label}</span>
+              {i < steps.length - 1 && <span className="text-muted-foreground">→</span>}
             </div>
           ))}
         </div>
@@ -220,54 +176,129 @@ export default function DocumentWriter() {
         {/* ── STEP 1: 업로드 */}
         {step === "upload" && (
           <div
-            className="border-2 border-dashed border-border rounded-2xl p-16 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
             onClick={() => fileRef.current?.click()}
+            className={`border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer transition-all ${
+              isDragging
+                ? "border-primary bg-primary/10 scale-[1.01]"
+                : "border-border hover:border-primary hover:bg-primary/5"
+            }`}
           >
-            <div className="text-5xl mb-4">📄</div>
-            <h3 className="text-xl font-semibold mb-2">문서 파일을 업로드하세요</h3>
-            <p className="text-muted-foreground text-sm mb-6">TXT, DOCX, PDF, XLSX, PPTX 지원</p>
-            <Button>파일 선택하기</Button>
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
+            <div className="text-6xl mb-4">{isDragging ? "📂" : "📄"}</div>
+            <h3 className="text-xl font-semibold mb-2">
+              {isDragging ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 업로드"}
+            </h3>
+            <p className="text-muted-foreground text-sm mb-6">TXT · DOCX · PDF · XLSX · PPTX 지원</p>
+            <Button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}>
+              파일 선택하기
+            </Button>
+            <input ref={fileRef} type="file" className="hidden"
               accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx"
-              onChange={handleFileUpload}
-            />
+              onChange={handleFileInput} />
           </div>
         )}
 
         {/* ── STEP 2: 분석 중 */}
-        {step === "analyze" && (
-          <div className="border rounded-2xl p-16 text-center">
-            <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">문서를 분석하고 있습니다...</h3>
-            <p className="text-muted-foreground text-sm">양식 구조, 섹션, 톤을 파악하고 있어요</p>
+        {step === "analyzing" && (
+          <div className="border rounded-2xl p-16 text-center space-y-6">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+            <div>
+              <h3 className="text-xl font-semibold mb-2">AI가 문서를 심층 분석하고 있습니다</h3>
+              <p className="text-muted-foreground text-sm">목적 · 톤 · 구조 · 키워드 · 개선점을 파악하는 중...</p>
+            </div>
+            <div className="flex justify-center gap-6 text-sm text-muted-foreground flex-wrap">
+              {["문서 구조 파악","문체·톤 분석","핵심 키워드 추출","개선 제안 생성"].map(t => (
+                <span key={t} className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />{t}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* ── STEP 3: 업로드 결과 확인 & 검증 */}
-        {step === "verify" && document && (
+        {/* ── STEP 3: 심층 분석 결과 */}
+        {step === "deepResult" && doc && (
           <div className="space-y-6">
-            {/* 분석 요약 */}
-            <div className="bg-green-500/10 border border-green-500/20 rounded-2xl p-6">
+            {/* 문서 기본 정보 */}
+            <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <p className="text-xs font-semibold text-green-600 uppercase tracking-widest mb-1">✅ 업로드 완료</p>
-                  <h3 className="text-2xl font-bold">{document.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    <span className="font-medium text-foreground">{document.documentType}</span> · {document.sections.length}개 섹션 감지 · {fileName}
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{document.summary}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold text-primary uppercase tracking-widest">{doc.documentType}</span>
+                    <span className="text-xs text-muted-foreground">· {fileName}</span>
+                  </div>
+                  <h3 className="text-2xl font-bold">{doc.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{doc.summary}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={reset}>다시 업로드</Button>
+              </div>
+            </div>
+
+            {/* 심층 분석 결과 카드 */}
+            <div className="bg-background border rounded-2xl p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-lg">🧠 AI 심층 분석 결과</h4>
+                {/* 품질 점수 */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">문서 품질</span>
+                  <div className="flex items-center gap-1.5 bg-muted rounded-full px-3 py-1">
+                    <span className={`text-lg font-bold ${
+                      doc.deepAnalysis.qualityScore >= 80 ? "text-green-500" :
+                      doc.deepAnalysis.qualityScore >= 60 ? "text-yellow-500" : "text-red-500"
+                    }`}>{doc.deepAnalysis.qualityScore}</span>
+                    <span className="text-xs text-muted-foreground">/ 100</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 분석 그리드 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <AnalysisCard icon="🎯" label="문서 목적" value={doc.deepAnalysis.purpose} />
+                <AnalysisCard icon="💡" label="핵심 메시지" value={doc.deepAnalysis.coreMessage} />
+                <AnalysisCard icon="👥" label="대상 독자" value={doc.deepAnalysis.targetAudience} />
+                <AnalysisCard icon="✍️" label="문체 · 톤" value={`${doc.deepAnalysis.writingStyle} / ${doc.deepAnalysis.tone}`} />
+                <AnalysisCard icon="⏱" label="예상 읽기 시간" value={doc.deepAnalysis.estimatedReadTime} />
+                <AnalysisCard icon="📊" label="품질 평가" value={doc.deepAnalysis.qualityReason} />
+              </div>
+
+              {/* 키워드 */}
+              <div>
+                <p className="text-sm font-semibold mb-2">🔑 핵심 키워드</p>
+                <div className="flex flex-wrap gap-2">
+                  {doc.deepAnalysis.keywords.map(k => (
+                    <span key={k} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full border border-primary/20 font-medium">
+                      {k}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* 구조 평가 */}
+              <div className="bg-muted/50 rounded-xl p-4">
+                <p className="text-sm font-semibold mb-1">📐 구조 평가</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{doc.deepAnalysis.structureEvaluation}</p>
+              </div>
+
+              {/* 개선 제안 */}
+              <div>
+                <p className="text-sm font-semibold mb-2">💬 AI 개선 제안</p>
+                <div className="space-y-2">
+                  {doc.deepAnalysis.suggestions.map((s, i) => (
+                    <div key={i} className="flex gap-3 bg-muted/40 rounded-xl p-3">
+                      <span className="text-primary font-bold text-sm flex-shrink-0">{i + 1}</span>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{s}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
             {/* 원본 텍스트 확인 */}
             <div className="bg-background border rounded-2xl p-6">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold">📄 원본 텍스트 확인</h4>
+                <h4 className="font-semibold">📄 원본 텍스트</h4>
                 <span className="text-xs text-muted-foreground">{rawText.length.toLocaleString()}자</span>
               </div>
               <div className="bg-muted/50 rounded-xl p-4 max-h-48 overflow-y-auto">
@@ -277,116 +308,108 @@ export default function DocumentWriter() {
               </div>
             </div>
 
-            {/* 감지된 섹션 확인 및 편집 */}
+            {/* 감지된 섹션 확인 */}
             <div className="bg-background border rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <h4 className="font-semibold">🗂 감지된 섹션 확인 · 편집</h4>
-                <Button size="sm" variant="outline" onClick={handleAddSection}>+ 섹션 추가</Button>
+                <h4 className="font-semibold">🗂 감지된 섹션 ({doc.sections.length}개)</h4>
+                <Button size="sm" variant="outline" onClick={addSection}>+ 섹션 추가</Button>
               </div>
-              <p className="text-xs text-muted-foreground">AI가 분석한 섹션 구조입니다. 틀린 부분은 지금 수정하세요.</p>
-
-              {document.sections.map((section) => (
-                <div key={section.id} className="border rounded-xl p-4 space-y-3 bg-muted/20">
-                  {/* 섹션 제목 */}
-                  <div className="flex items-center justify-between gap-2">
+              {doc.sections.map(section => (
+                <div key={section.id} className="border rounded-xl p-4 space-y-2 bg-muted/20">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     {editingId === section.id + "_title" ? (
                       <div className="flex gap-2 flex-1">
-                        <input
-                          className="flex-1 border rounded-lg px-3 py-1.5 text-sm bg-background outline-none focus:border-primary font-medium"
-                          value={editText}
-                          onChange={e => setEditText(e.target.value)}
-                          autoFocus
-                        />
-                        <Button size="sm" onClick={() => handleSaveTitle(section.id)}>저장</Button>
+                        <input className="flex-1 border rounded-lg px-3 py-1.5 text-sm bg-background outline-none focus:border-primary"
+                          value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                        <Button size="sm" onClick={() => saveEdit(section.id, "title")}>저장</Button>
                         <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap flex-1">
                         <span className="font-medium text-sm">{section.title}</span>
-                        <button onClick={() => handleEditTitle(section)} className="text-xs text-muted-foreground hover:text-primary transition-colors">✏️ 수정</button>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${IMPORTANCE_COLOR[section.importance]}`}>
+                          {IMPORTANCE_LABEL[section.importance]}
+                        </span>
+                        <button onClick={() => { setEditingId(section.id + "_title"); setEditText(section.title); }}
+                          className="text-xs text-muted-foreground hover:text-primary transition-colors">✏️</button>
                       </div>
                     )}
-                    <button
-                      onClick={() => handleDeleteSection(section.id)}
-                      className="text-xs text-muted-foreground hover:text-destructive transition-colors ml-2"
-                    >🗑 삭제</button>
+                    <button onClick={() => deleteSection(section.id)}
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors">🗑 삭제</button>
                   </div>
 
-                  {/* 섹션 내용 */}
                   {editingId === section.id + "_original" ? (
                     <div className="space-y-2">
-                      <textarea
-                        className="w-full border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary min-h-[100px] resize-y"
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                        autoFocus
-                      />
+                      <textarea className="w-full border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary min-h-[90px] resize-y"
+                        value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleSaveOriginal(section.id)}>저장</Button>
+                        <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
                         <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                       </div>
                     </div>
                   ) : (
                     <div className="group relative bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-16">
+                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-16 line-clamp-3">
                         {section.originalText}
                       </p>
                       <button
-                        onClick={() => handleEditOriginal(section)}
-                        className="absolute top-2 right-2 text-xs text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1"
-                      >✏️ 편집</button>
+                        onClick={() => { setEditingId(section.id + "_original"); setEditText(section.originalText); }}
+                        className="absolute top-2 right-2 text-xs text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1">
+                        ✏️ 편집
+                      </button>
                     </div>
                   )}
                 </div>
               ))}
             </div>
 
-            {/* 확인 완료 → 다음 단계 */}
             <div className="flex justify-end">
               <Button size="lg" onClick={() => setStep("edit")}>
-                확인 완료 · AI 작성 시작 →
+                분석 확인 완료 · AI 작성 시작 →
               </Button>
             </div>
           </div>
         )}
 
         {/* ── STEP 4: AI 작성 */}
-        {step === "edit" && document && (
+        {step === "edit" && doc && (
           <div className="space-y-6">
             <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <span className="text-xs font-semibold text-primary uppercase tracking-widest">{document.documentType}</span>
-                  <h3 className="text-2xl font-bold mt-1">{document.title}</h3>
-                  <p className="text-muted-foreground text-sm mt-1">각 섹션에 작성 의도를 입력하고 AI 작성을 시작하세요.</p>
+                  <span className="text-xs font-semibold text-primary uppercase tracking-widest">{doc.documentType}</span>
+                  <h3 className="text-2xl font-bold mt-1">{doc.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    각 섹션에 작성 의도를 입력 후 AI 작성을 시작하세요.
+                  </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" onClick={() => setStep("verify")}>← 돌아가기</Button>
-                  <Button onClick={handleGenerateAll}>✦ 전체 AI 작성</Button>
+                  <Button variant="outline" onClick={() => setStep("deepResult")}>← 분석 결과</Button>
+                  <Button onClick={generateAll}>✦ 전체 AI 작성</Button>
                 </div>
               </div>
             </div>
 
-            {document.sections.map((section) => (
+            {doc.sections.map(section => (
               <div key={section.id} className="bg-background border rounded-2xl p-6 space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h4 className="font-semibold text-lg">{section.title}</h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-semibold">{section.title}</h4>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${IMPORTANCE_COLOR[section.importance]}`}>
+                      {IMPORTANCE_LABEL[section.importance]}
+                    </span>
+                  </div>
                   {section.aiGenerated && (
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">✦ AI 작성됨</span>
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">✦ AI 작성됨</span>
                   )}
                 </div>
 
-                {/* 내용 표시 / 편집 */}
-                {editingId === section.id + "_ai" ? (
+                {editingId === section.id + "_edit" ? (
                   <div className="space-y-2">
-                    <textarea
-                      className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
-                      value={editText}
-                      onChange={e => setEditText(e.target.value)}
-                      autoFocus
-                    />
+                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
+                      value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => handleSaveOriginal(section.id)}>저장</Button>
+                      <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
                       <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                     </div>
                   </div>
@@ -396,32 +419,23 @@ export default function DocumentWriter() {
                       {section.originalText}
                     </p>
                     <button
-                      onClick={() => { setEditingId(section.id + "_ai"); setEditText(section.originalText); }}
-                      className="absolute top-3 right-3 text-xs text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1"
-                    >✏️ 직접 편집</button>
+                      onClick={() => { setEditingId(section.id + "_edit"); setEditText(section.originalText); }}
+                      className="absolute top-3 right-3 text-xs opacity-0 group-hover:opacity-100 transition-all bg-background border rounded px-2 py-1 hover:text-primary">
+                      ✏️ 직접 편집
+                    </button>
                   </div>
                 )}
 
-                {/* 의도 입력 + AI 작성 */}
                 <div className="flex gap-2">
-                  <input
-                    type="text"
+                  <input type="text"
                     className="flex-1 border rounded-lg px-3 py-2 text-sm bg-muted/50 outline-none focus:border-primary"
-                    placeholder="예) 3분기 매출 15% 증가, 신규 고객 확보 전략 중심으로"
+                    placeholder="예) 3분기 매출 15% 증가, 신규 고객 확보 중심으로"
                     value={intents[section.id] || ""}
-                    onChange={(e) => setIntents(prev => ({ ...prev, [section.id]: e.target.value }))}
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => handleGenerateSection(section)}
-                    disabled={loadingSection === section.id}
-                  >
-                    {loadingSection === section.id ? (
-                      <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                        작성 중
-                      </span>
-                    ) : section.aiGenerated ? "재작성" : "AI 작성"}
+                    onChange={e => setIntents(p => ({ ...p, [section.id]: e.target.value }))} />
+                  <Button size="sm" onClick={() => generateOne(section)} disabled={loadingSection === section.id}>
+                    {loadingSection === section.id
+                      ? <span className="flex items-center gap-1"><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> 작성 중</span>
+                      : section.aiGenerated ? "재작성" : "AI 작성"}
                   </Button>
                 </div>
               </div>
@@ -433,62 +447,57 @@ export default function DocumentWriter() {
           </div>
         )}
 
-        {/* ── STEP 5: 완료 & 최종 편집 */}
-        {step === "done" && document && (
+        {/* ── STEP 5: 완료 */}
+        {step === "done" && doc && (
           <div className="space-y-6">
             <div className="bg-green-500/10 border border-green-500/20 rounded-2xl p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <div className="text-3xl mb-2">🎉</div>
                   <h3 className="text-2xl font-bold mb-1">문서 작성 완료!</h3>
-                  <p className="text-muted-foreground text-sm">최종 내용을 확인하고 필요하면 직접 편집 후 다운로드하세요.</p>
+                  <p className="text-muted-foreground text-sm">최종 내용을 확인하고 필요하면 편집 후 다운로드하세요.</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={() => setStep("edit")}>← 다시 편집</Button>
-                  <Button onClick={handleExport}>📥 문서 다운로드</Button>
+                  <Button onClick={exportDoc}>📥 다운로드</Button>
                   <Button variant="outline" onClick={reset}>새 문서 작성</Button>
                 </div>
               </div>
             </div>
 
-            {document.sections.map((section) => (
+            {doc.sections.map(section => (
               <div key={section.id} className="bg-background border rounded-2xl p-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-semibold">{section.title}</h4>
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
+                    <h4 className="font-semibold">{section.title}</h4>
                     {section.aiGenerated && (
                       <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">✦ AI 작성</span>
                     )}
-                    <button
-                      onClick={() => { setEditingId(section.id + "_done"); setEditText(section.originalText); }}
-                      className="text-xs text-muted-foreground hover:text-primary transition-colors border rounded px-2 py-1"
-                    >✏️ 편집</button>
                   </div>
+                  <button
+                    onClick={() => { setEditingId(section.id + "_done"); setEditText(section.originalText); }}
+                    className="text-xs text-muted-foreground hover:text-primary border rounded px-2 py-1 transition-colors">
+                    ✏️ 편집
+                  </button>
                 </div>
 
                 {editingId === section.id + "_done" ? (
                   <div className="space-y-2">
-                    <textarea
-                      className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
-                      value={editText}
-                      onChange={e => setEditText(e.target.value)}
-                      autoFocus
-                    />
+                    <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
+                      value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => handleSaveOriginal(section.id)}>저장</Button>
+                      <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
                       <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
-                    {section.originalText}
-                  </p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">{section.originalText}</p>
                 )}
               </div>
             ))}
 
             <div className="flex justify-center pt-4">
-              <Button size="lg" onClick={handleExport}>📥 최종 문서 다운로드</Button>
+              <Button size="lg" onClick={exportDoc}>📥 최종 문서 다운로드</Button>
             </div>
           </div>
         )}
@@ -497,10 +506,20 @@ export default function DocumentWriter() {
   );
 }
 
+// ── 분석 카드 컴포넌트
+function AnalysisCard({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <div className="bg-muted/50 rounded-xl p-4">
+      <p className="text-xs font-semibold text-muted-foreground mb-1">{icon} {label}</p>
+      <p className="text-sm leading-relaxed">{value}</p>
+    </div>
+  );
+}
+
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target?.result as string);
+    reader.onload = e => resolve(e.target?.result as string);
     reader.onerror = reject;
     reader.readAsText(file, "utf-8");
   });
