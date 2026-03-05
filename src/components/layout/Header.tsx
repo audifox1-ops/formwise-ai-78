@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 
@@ -14,6 +14,7 @@ const navItems = [
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-card/90 backdrop-blur-lg border-b border-border/50">
@@ -42,8 +43,8 @@ const Header = () => {
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
-          <Button variant="ghost" size="sm">로그인</Button>
-          <Button variant="teal" size="sm">무료로 시작하기</Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/demo")}>로그인</Button>
+          <Button variant="teal" size="sm" onClick={() => navigate("/demo")}>무료로 시작하기</Button>
         </div>
 
         <button className="md:hidden text-foreground" onClick={() => setIsOpen(!isOpen)}>
@@ -66,8 +67,8 @@ const Header = () => {
             </Link>
           ))}
           <div className="mt-4 flex flex-col gap-2">
-            <Button variant="ghost" size="sm">로그인</Button>
-            <Button variant="teal" size="sm">무료로 시작하기</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setIsOpen(false); navigate("/demo"); }}>로그인</Button>
+            <Button variant="teal" size="sm" onClick={() => { setIsOpen(false); navigate("/demo"); }}>무료로 시작하기</Button>
           </div>
         </div>
       )}
