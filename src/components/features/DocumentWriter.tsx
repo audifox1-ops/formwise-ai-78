@@ -29,6 +29,10 @@ export default function DocumentWriter() {
   const [editText, setEditText]   = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  
+  // 새로 추가된 상태: 작성 모드 (기존 텍스트 유지 vs 구조만 남기고 빈 화면)
+  const [writeMode, setWriteMode] = useState<"rewrite" | "new">("rewrite");
+  
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = async (file: File) => {
@@ -116,6 +120,21 @@ export default function DocumentWriter() {
     setIntents(prev => ({ ...prev, [newId]: "" }));
   };
 
+  // 작성 모드에 맞춰 다음 단계로 이동
+  const handleStartEdit = () => {
+    if (writeMode === "new" && doc) {
+      // 빈 템플릿(새로 작성) 모드일 경우 각 섹션의 내용을 모두 비움
+      setDoc(prev => prev ? {
+        ...prev,
+        sections: prev.sections.map(s => ({
+          ...s,
+          originalText: "",
+        }))
+      } : prev);
+    }
+    setStep("edit");
+  };
+
   const generateOne = async (section: DocumentSection) => {
     if (!intents[section.id]?.trim()) { toast.error("작성 의도를 입력해주세요."); return; }
     
@@ -165,6 +184,7 @@ export default function DocumentWriter() {
     setRawText(""); setFileName("");
     setIntents({}); setEditingId(null);
     setAnalyzeError(null);
+    setWriteMode("rewrite");
   };
 
   const steps = [
@@ -390,8 +410,33 @@ export default function DocumentWriter() {
               ))}
             </div>
 
-            <div className="flex justify-end">
-              <Button size="lg" onClick={() => setStep("edit")}>
+            {/* 작성 모드 선택 옵션 */}
+            <div className="bg-background border rounded-2xl p-6 space-y-4">
+              <h4 className="font-semibold">⚙️ AI 작성 모드 선택</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={() => setWriteMode("rewrite")}
+                  className={`p-4 border rounded-xl text-left transition-all ${
+                    writeMode === "rewrite" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50 bg-muted/30"
+                  }`}
+                >
+                  <div className="font-semibold mb-1">📝 기존 내용 다듬기</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">원본 내용을 바탕으로 AI가 문맥에 맞게 수정하고 보완합니다.</p>
+                </button>
+                <button
+                  onClick={() => setWriteMode("new")}
+                  className={`p-4 border rounded-xl text-left transition-all ${
+                    writeMode === "new" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50 bg-muted/30"
+                  }`}
+                >
+                  <div className="font-semibold mb-1">✨ 구조만 유지하고 새로 작성</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">내용은 모두 비운 채, 목차 구조와 내 작성 의도만을 바탕으로 완전히 새로 작성합니다.</p>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button size="lg" onClick={handleStartEdit}>
                 확인 완료 · AI 작성 시작 →
               </Button>
             </div>
@@ -406,7 +451,9 @@ export default function DocumentWriter() {
                 <div>
                   <span className="text-xs font-semibold text-primary uppercase tracking-widest">{doc.documentType}</span>
                   <h3 className="text-2xl font-bold mt-1">{doc.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">각 섹션에 작성 의도를 입력 후 AI 작성을 시작하세요.</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    각 섹션에 작성 의도를 입력 후 AI 작성을 시작하세요.
+                  </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={() => setStep("deepResult")}>← 분석 결과</Button>
@@ -432,16 +479,16 @@ export default function DocumentWriter() {
                 {editingId === section.id + "_edit" ? (
                   <div className="space-y-2">
                     <textarea className="w-full border rounded-xl px-4 py-3 text-sm bg-muted/50 outline-none focus:border-primary min-h-[120px] resize-y"
-                      value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                      value={editText} onChange={e => setEditText(e.target.value)} autoFocus placeholder="내용을 입력하세요..." />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => saveEdit(section.id, "originalText")}>저장</Button>
                       <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>취소</Button>
                     </div>
                   </div>
                 ) : (
-                  <div className="group relative bg-muted/50 rounded-xl p-4">
+                  <div className="group relative bg-muted/50 rounded-xl p-4 min-h-[80px]">
                     <p className={`text-sm leading-relaxed whitespace-pre-wrap pr-16 ${section.aiGenerated ? "text-foreground" : "text-muted-foreground"}`}>
-                      {section.originalText}
+                      {section.originalText || "✨ 비어있는 섹션입니다. 아래에 의도를 입력하고 AI에게 지시하거나 직접 내용을 채워보세요."}
                     </p>
                     <button
                       onClick={() => { setEditingId(section.id + "_edit"); setEditText(section.originalText); }}
@@ -548,7 +595,6 @@ async function readFileAsText(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
 
   try {
-    // 1. DOCX (Word 문서)
     if (ext === 'docx') {
       // @ts-ignore
       const mammothModule = await import('https://esm.sh/mammoth@1.6.0');
@@ -557,7 +603,6 @@ async function readFileAsText(file: File): Promise<string> {
       return result.value;
     }
 
-    // 2. Excel (XLSX, XLS, CSV)
     if (['xlsx', 'xls', 'csv'].includes(ext || '')) {
       // @ts-ignore
       const XLSX = await import('https://esm.sh/xlsx@0.18.5');
@@ -570,7 +615,6 @@ async function readFileAsText(file: File): Promise<string> {
       return text;
     }
 
-    // 3. PDF
     if (ext === 'pdf') {
       // @ts-ignore
       const pdfjsLib = await import('https://esm.sh/pdfjs-dist@3.11.174');
@@ -585,7 +629,6 @@ async function readFileAsText(file: File): Promise<string> {
       return text;
     }
 
-    // 4. PPTX (PowerPoint)
     if (ext === 'pptx') {
       // @ts-ignore
       const JSZipModule = await import('https://esm.sh/jszip@3.10.1');
@@ -605,7 +648,6 @@ async function readFileAsText(file: File): Promise<string> {
       return text;
     }
 
-    // 5. HWPX (최신 한글 포맷)
     if (ext === 'hwpx') {
        // @ts-ignore
        const JSZipModule = await import('https://esm.sh/jszip@3.10.1');
@@ -624,14 +666,12 @@ async function readFileAsText(file: File): Promise<string> {
        return text;
     }
 
-    // 6. 구형 HWP (바이너리 포맷 강제 스캐닝 폴백)
     if (ext === 'hwp') {
        const fallbackText = decodeTextFallback(buffer);
        const matched = fallbackText.match(/[가-힣a-zA-Z0-9\s\.\,\!\?]{2,}/g);
        return matched ? matched.join(' ') : fallbackText;
     }
 
-    // 7. 일반 TXT 등 기타 파일
     return decodeTextFallback(buffer);
 
   } catch (error) {
@@ -640,7 +680,6 @@ async function readFileAsText(file: File): Promise<string> {
   }
 }
 
-// 텍스트 파일 인코딩(UTF-8 / EUC-KR) 자동 판별 함수
 function decodeTextFallback(buffer: ArrayBuffer): string {
   const uint8Array = new Uint8Array(buffer);
   try {
